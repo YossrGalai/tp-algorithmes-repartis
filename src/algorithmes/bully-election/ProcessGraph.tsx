@@ -145,7 +145,7 @@ export const ProcessGraph: React.FC<ProcessGraphProps> = ({
 
       // ── Dots animés ──────────────────────────────────────────────────────
       animDotsRef.current = animDotsRef.current.filter(dot => {
-        dot.progress = Math.min(dot.progress + 0.02, 1);
+        dot.progress = Math.min(dot.progress + 0.005, 1);
         const x = dot.fx + (dot.tx - dot.fx) * dot.progress;
         const y = dot.fy + (dot.ty - dot.fy) * dot.progress;
 
@@ -161,6 +161,15 @@ export const ProcessGraph: React.FC<ProcessGraphProps> = ({
         ctx.arc(x, y, dot.toFailed ? 4 : 6, 0, Math.PI * 2);
         ctx.fillStyle = color;
         ctx.fill();
+        ctx.globalAlpha = 1;
+
+        // Afficher le type du message à côté du dot
+        ctx.fillStyle = color;
+        ctx.font = 'bold 10px ui-monospace, monospace';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.globalAlpha = alpha * 0.9;
+        ctx.fillText(dot.type, x + 12, y);
         ctx.globalAlpha = 1;
 
         return dot.progress < 1;
