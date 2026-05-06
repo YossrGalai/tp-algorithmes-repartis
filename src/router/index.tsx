@@ -5,6 +5,7 @@ import Placeholder from '../pages/Placeholder.tsx';
 import RingElectionPage from '../pages/RingElectionPage.tsx';
 import BullyElectionPage from '../pages/BullyElectionPage.tsx';
 import ScrollToTop from './ScrollToTop';
+import Snapshots from '../pages/Snapshots.tsx';
 
 const router = createBrowserRouter([
   {
@@ -35,6 +36,10 @@ const router = createBrowserRouter([
       {
         path: '/ring-election',
         element: <RingElectionPage />,
+      },
+      {
+        path: '/snapshots',
+        element: <Snapshots />,
       },
     ],
   },
