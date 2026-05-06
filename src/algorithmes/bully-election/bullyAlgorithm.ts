@@ -1,245 +1,320 @@
-import type { Process, Message, SimulationState, MessageType } from './types.ts';
+import type { Process, Message, SimulationState, MessageType, ProcessState } from './types';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Chaque étape de la simulation est représentée par un ElectionStep.
+// L'orchestrateur (BullyElectionApp) les rejoue une à une avec un délai
+// pour rendre l'animation visible dans le graphe et le journal.
+// ─────────────────────────────────────────────────────────────────────────────
+export interface ElectionStep {
+  type: 'msg' | 'state' | 'win';
+  // type === 'msg'
+  from?: number;
+  to?: number;
+  msgType?: MessageType;
+  toFailed?: boolean;   // destinataire en panne → le message part mais sans réponse
+  // type === 'state'
+  id?: number;
+  newState?: ProcessState;
+  // type === 'win'
+  winner?: number;
+}
 
 export class BullyAlgorithm {
-  private processCount: number;
-  private processes: Process[];
+  private processes: Process[] = [];
   private messages: Message[] = [];
-  private messageLog: string[] = [];
   private currentLeader: number | null = null;
   private timestamp: number = 0;
   private messageId: number = 0;
+  private nextProcessId: number = 5;
 
   constructor(processCount: number = 5) {
-    this.processCount = processCount;
-    this.processes = this.initializeProcesses(processCount);
-    // Le processus avec l'ID le plus grand est le coordinateur initial
-    this.currentLeader = processCount - 1;
-    this.processes[this.currentLeader].isCoordinator = true;
-    this.processes[this.currentLeader].state = 'COORDINATOR';
-    this.logMessage(`[INIT] Coordinateur initial: Processus ${this.currentLeader}`);
+    this.processes = this.initProcesses(processCount);
+    this.nextProcessId = processCount;
+    // Pas de leader initial — l'utilisateur doit déclencher une élection
   }
 
-  private initializeProcesses(count: number): Process[] {
+  // ── Helpers privés ──────────────────────────────────────────────────────────
+
+  private initProcesses(count: number): Process[] {
     return Array.from({ length: count }, (_, i) => ({
       id: i,
-      state: 'IDLE',
-      isCoordinator: i === count - 1,
+      state: 'IDLE' as ProcessState,
+      isCoordinator: false,
       isFailed: false,
-      receivedMessages: [],
-      sentMessages: [],
     }));
   }
 
-  private logMessage(msg: string): void {
-    this.messageLog.push(`[${this.timestamp}] ${msg}`);
+  private getIndexById(id: number): number {
+    return this.processes.findIndex(p => p.id === id);
+  }
+
+  private nextMsgId(): string {
+    return `msg-${this.messageId++}`;
   }
 
   private createMessage(
     from: number,
     to: number,
     type: MessageType,
-    content: string
+    toFailed = false,
   ): Message {
     return {
-      id: `msg-${this.messageId++}`,
+      id: this.nextMsgId(),
       from,
       to,
       type,
-      timestamp: this.timestamp,
-      content,
+      toFailed,
+      timestamp: ++this.timestamp,
+      content: `P${from} → P${to}: ${type}`,
     };
   }
 
-  // Simuler la détection de panne
-  simulateProcessFailure(processId: number): void {
-    if (processId >= this.processCount || processId < 0) {
-      this.logMessage(`[ERREUR] Processus invalide: ${processId}`);
-      return;
+  /** Tous les processus actifs (non en panne) */
+  private getActive(): Process[] {
+    return this.processes.filter(p => !p.isFailed);
+  }
+
+  /** Tous les processus avec id > initiatorId, qu'ils soient en panne ou non */
+  private getHigher(initiatorId: number): Process[] {
+    return this.processes
+      .filter(p => p.id > initiatorId)
+      .sort((a, b) => a.id - b.id);
+  }
+
+  /** Processus actifs avec id > initiatorId (ceux qui peuvent répondre) */
+  private getHigherActive(initiatorId: number): Process[] {
+    return this.getHigher(initiatorId).filter(p => !p.isFailed);
+  }
+
+  // ── Cœur de l'algorithme de Bully ──────────────────────────────────────────
+
+  /**
+   * Construit la séquence complète des étapes pour l'élection initiée par
+   * `initiatorId`, selon les règles exactes du Bully Algorithm :
+   *
+   * 1. L'initiateur envoie ELECTION à TOUS les processus d'ID supérieur
+   *    (y compris ceux en panne — ils ne répondront simplement pas).
+   * 2. Seuls les actifs répondent OK.
+   * 3. L'initiateur se retire (IDLE) si au moins un actif répond.
+   * 4. Chaque actif supérieur lance à son tour sa propre élection (récursif).
+   * 5. Le processus actif le plus élevé ne trouve aucun actif supérieur →
+   *    il gagne et diffuse COORDINATOR à tous les autres processus actifs.
+   *
+   * `visited` évite les cycles : un processus ne lance l'élection qu'une fois.
+   */
+  buildElectionSteps(
+    initiatorId: number,
+    visited: Set<number> = new Set(),
+  ): ElectionStep[] {
+    if (visited.has(initiatorId)) return [];
+    visited.add(initiatorId);
+
+    const steps: ElectionStep[] = [];
+
+    const higher = this.getHigher(initiatorId);           // tous > initiatorId
+    const higherActive = higher.filter(p => !p.isFailed); // ceux qui répondent
+
+    if (higher.length === 0) {
+      // Aucun processus d'ID supérieur : l'initiateur est directement élu
+      steps.push({ type: 'win', winner: initiatorId });
+      return steps;
     }
 
-    this.processes[processId].isFailed = true;
-    this.processes[processId].state = 'FAILED';
-    this.logMessage(`[PANNE DÉTECTÉE] Processus ${processId} est en panne`);
+    // Étape 1 : envoyer ELECTION à tous les supérieurs (actifs ET en panne)
+    for (const h of higher) {
+      steps.push({
+        type: 'msg',
+        from: initiatorId,
+        to: h.id,
+        msgType: 'ELECTION',
+        toFailed: h.isFailed,
+      });
+    }
 
-    // Si le leader tombe en panne, déclencher une élection
+    // Étape 2 : seuls les actifs répondent OK
+    for (const h of higherActive) {
+      steps.push({
+        type: 'msg',
+        from: h.id,
+        to: initiatorId,
+        msgType: 'OK',
+        toFailed: false,
+      });
+    }
+
+    if (higherActive.length === 0) {
+      // Tous les supérieurs sont en panne → l'initiateur gagne quand même
+      steps.push({ type: 'win', winner: initiatorId });
+      return steps;
+    }
+
+    // L'initiateur se retire
+    steps.push({ type: 'state', id: initiatorId, newState: 'IDLE' });
+
+    // Étape 3 : chaque actif supérieur lance sa propre élection
+    for (const h of higherActive) {
+      steps.push({ type: 'state', id: h.id, newState: 'ELECTION_IN_PROGRESS' });
+      steps.push(...this.buildElectionSteps(h.id, visited));
+    }
+
+    return steps;
+  }
+
+  // ── API publique ────────────────────────────────────────────────────────────
+
+  /** Lance une élection depuis `initiatorId` et retourne les étapes à rejouer */
+  startElection(initiatorId: number): ElectionStep[] {
+    const index = this.getIndexById(initiatorId);
+    if (index === -1 || this.processes[index].isFailed) return [];
+
+    // Réinitialiser les états (garder les pannes)
+    this.processes.forEach(p => {
+      if (!p.isFailed) {
+        p.state = 'IDLE';
+        p.isCoordinator = false;
+      }
+    });
+    this.currentLeader = null;
+    this.processes[index].state = 'ELECTION_IN_PROGRESS';
+
+    return this.buildElectionSteps(initiatorId, new Set());
+  }
+
+  /**
+   * Applique une étape unique à l'état interne.
+   * Retourne le Message créé (pour le journal) ou null.
+   * Pour 'win', crée en interne tous les messages COORDINATOR et les retourne
+   * groupés via un tableau — l'appelant doit donc appeler applyStep et
+   * récupérer les messages COORDINATOR séparément via getNewMessages().
+   */
+  applyStep(step: ElectionStep): Message | null {
+    // ── Message échangé ────────────────────────────────────────────────
+    if (
+      step.type === 'msg' &&
+      step.from !== undefined &&
+      step.to !== undefined &&
+      step.msgType
+    ) {
+      const msg = this.createMessage(
+        step.from,
+        step.to,
+        step.msgType,
+        step.toFailed ?? false,
+      );
+      this.messages.push(msg);
+      return msg;
+    }
+
+    // ── Changement d'état d'un processus ──────────────────────────────
+    if (step.type === 'state' && step.id !== undefined && step.newState) {
+      const idx = this.getIndexById(step.id);
+      if (idx !== -1 && !this.processes[idx].isFailed) {
+        this.processes[idx].state = step.newState;
+      }
+    }
+
+    // ── Victoire : émettre les COORDINATOR ────────────────────────────
+    if (step.type === 'win' && step.winner !== undefined) {
+      const idx = this.getIndexById(step.winner);
+      if (idx !== -1) {
+        // Effacer l'ancien leader
+        if (this.currentLeader !== null) {
+          const oldIdx = this.getIndexById(this.currentLeader);
+          if (oldIdx !== -1) {
+            this.processes[oldIdx].isCoordinator = false;
+            this.processes[oldIdx].state = 'IDLE';
+          }
+        }
+
+        this.currentLeader = step.winner;
+        this.processes[idx].isCoordinator = true;
+        this.processes[idx].state = 'COORDINATOR';
+
+        // Diffuser COORDINATOR à tous les autres (actifs uniquement)
+        this.getActive()
+          .filter(p => p.id !== step.winner)
+          .forEach(p => {
+            const msg = this.createMessage(step.winner!, p.id, 'COORDINATOR');
+            this.messages.push(msg);
+            const pIdx = this.getIndexById(p.id);
+            if (pIdx !== -1) this.processes[pIdx].state = 'IDLE';
+          });
+      }
+    }
+
+    return null;
+  }
+
+  /** Récupère les messages COORDINATOR générés lors d'un 'win' (pour le journal) */
+  getLastCoordinatorMessages(winnerId: number): Message[] {
+    return this.messages.filter(
+      m => m.type === 'COORDINATOR' && m.from === winnerId,
+    );
+  }
+
+  simulateProcessFailure(processId: number): void {
+    const index = this.getIndexById(processId);
+    if (index === -1) return;
+    this.processes[index].isFailed = true;
+    this.processes[index].state = 'FAILED';
+    this.processes[index].isCoordinator = false;
     if (this.currentLeader === processId) {
-      this.logMessage(`[CRITIQUE] Le coordinateur ${processId} est en panne!`);
       this.currentLeader = null;
     }
   }
 
-  // Démarrer une élection
-  startElection(initiatorId: number): void {
-    if (this.processes[initiatorId].isFailed) {
-      this.logMessage(`[ERREUR] Le processus ${initiatorId} est en panne, il ne peut pas initier l'élection`);
-      return;
-    }
+  recoverProcess(processId: number): void {
+    const index = this.getIndexById(processId);
+    if (index === -1) return;
+    this.processes[index].isFailed = false;
+    this.processes[index].state = 'IDLE';
+  }
 
-    this.timestamp++;
-    this.logMessage(`[ÉLECTION DÉBUTÉE] Initiée par le processus ${initiatorId}`);
-    this.processes[initiatorId].state = 'ELECTION_IN_PROGRESS';
+  addProcess(): void {
+    const newId = this.nextProcessId++;
+    this.processes.push({
+      id: newId,
+      state: 'IDLE',
+      isCoordinator: false,
+      isFailed: false,
+    });
+  }
 
-    // Envoyer des messages ELECTION à tous les processus avec un ID supérieur
-    const higherProcesses = this.processes
-      .filter((p) => p.id > initiatorId && !p.isFailed)
-      .map((p) => p.id);
-
-    if (higherProcesses.length === 0) {
-      // Aucun processus avec un ID supérieur -> l'initiateur gagne
-      this.logMessage(`[RÉSULTAT] Aucun processus supérieur trouvé. Processus ${initiatorId} est le nouveau coordinateur`);
-      this.electProcess(initiatorId);
-    } else {
-      // Envoyer des messages ELECTION aux processus supérieurs
-      for (const targetId of higherProcesses) {
-        const msg = this.createMessage(initiatorId, targetId, 'ELECTION', 'Participez à l\'élection');
-        this.messages.push(msg);
-        this.processes[initiatorId].sentMessages.push(msg);
-        this.processes[targetId].receivedMessages.push(msg);
-        this.logMessage(`[ENVOI] Processus ${initiatorId} -> Processus ${targetId}: MESSAGE ELECTION`);
-
-        // Simuler la réception et la réaction
-        if (!this.processes[targetId].isFailed) {
-          this.timestamp++;
-          const okMsg = this.createMessage(targetId, initiatorId, 'OK', 'Je suis actif');
-          this.messages.push(okMsg);
-          this.processes[targetId].sentMessages.push(okMsg);
-          this.processes[initiatorId].receivedMessages.push(okMsg);
-          this.logMessage(`[RÉPONSE] Processus ${targetId} -> Processus ${initiatorId}: MESSAGE OK`);
-
-          // Le processus supérieur démarre sa propre élection
-          if (this.processes[targetId].state !== 'ELECTION_IN_PROGRESS') {
-            this.timestamp++;
-            this.startElectionFrom(targetId);
-          }
-        }
-      }
-
-      // Vérifier après un délai si quelqu'un a répondu
-      this.timestamp += 2; // Simuler un délai
-      const receivedOk = this.messages.some(
-        (m) => m.from !== initiatorId && m.to === initiatorId && m.type === 'OK'
-      );
-
-      if (!receivedOk) {
-        // Aucune réponse -> l'initiateur gagne
-        this.logMessage(`[RÉSULTAT] Aucune réponse reçue. Processus ${initiatorId} est le nouveau coordinateur`);
-        this.electProcess(initiatorId);
-      }
+  removeProcess(processId: number): void {
+    const index = this.getIndexById(processId);
+    if (index === -1) return;
+    this.processes.splice(index, 1);
+    if (this.currentLeader === processId) {
+      this.currentLeader = null;
     }
   }
 
-  private startElectionFrom(processId: number): void {
-    if (this.processes[processId].state === 'ELECTION_IN_PROGRESS') {
-      return;
-    }
-
-    this.processes[processId].state = 'ELECTION_IN_PROGRESS';
-    this.logMessage(`[ÉLECTION DÉBUTÉE] Initiée par le processus ${processId}`);
-
-    const higherProcesses = this.processes
-      .filter((p) => p.id > processId && !p.isFailed)
-      .map((p) => p.id);
-
-    if (higherProcesses.length === 0) {
-      // Aucun processus supérieur -> ce processus gagne
-      this.logMessage(`[RÉSULTAT] Processus ${processId} est le nouveau coordinateur`);
-      this.electProcess(processId);
-    } else {
-      for (const targetId of higherProcesses) {
-        const msg = this.createMessage(processId, targetId, 'ELECTION', 'Participez à l\'élection');
-        this.messages.push(msg);
-        this.processes[processId].sentMessages.push(msg);
-        this.processes[targetId].receivedMessages.push(msg);
-        this.logMessage(`[ENVOI] Processus ${processId} -> Processus ${targetId}: MESSAGE ELECTION`);
-
-        if (!this.processes[targetId].isFailed && this.processes[targetId].state !== 'ELECTION_IN_PROGRESS') {
-          this.timestamp++;
-          const okMsg = this.createMessage(targetId, processId, 'OK', 'Je suis actif');
-          this.messages.push(okMsg);
-          this.processes[targetId].sentMessages.push(okMsg);
-          this.processes[processId].receivedMessages.push(okMsg);
-          this.logMessage(`[RÉPONSE] Processus ${targetId} -> Processus ${processId}: MESSAGE OK`);
-          this.timestamp++;
-          this.startElectionFrom(targetId);
-        }
-      }
-
-      this.timestamp += 2;
-      const receivedOk = this.messages.some(
-        (m) => m.from !== processId && m.to === processId && m.type === 'OK'
-      );
-
-      if (!receivedOk) {
-        this.logMessage(`[RÉSULTAT] Processus ${processId} est le nouveau coordinateur`);
-        this.electProcess(processId);
-      }
-    }
-  }
-
-  private electProcess(winnerId: number): void {
-    this.timestamp++;
-    this.currentLeader = winnerId;
-    this.processes[winnerId].isCoordinator = true;
-    this.processes[winnerId].state = 'COORDINATOR';
-
-    // Envoyer des messages ELECTED à tous les autres processus (non en panne)
-    for (const process of this.processes) {
-      if (process.id !== winnerId && !process.isFailed) {
-        const msg = this.createMessage(winnerId, process.id, 'ELECTED', `Je suis le coordinateur`);
-        this.messages.push(msg);
-        this.processes[winnerId].sentMessages.push(msg);
-        process.receivedMessages.push(msg);
-        this.logMessage(`[ENVOI] Processus ${winnerId} -> Processus ${process.id}: MESSAGE ELECTED`);
-        this.timestamp++;
-      }
-    }
-
-    this.logMessage(`[SUCCÈS] Élection terminée. Nouveau coordinateur: ${winnerId}`);
-
-    // Réinitialiser les états
-    for (const process of this.processes) {
-      if (!process.isFailed && process.id !== winnerId) {
-        process.state = 'IDLE';
-        process.isCoordinator = false;
-      }
-    }
+  reset(): void {
+    this.processes = this.initProcesses(5);
+    this.messages = [];
+    this.currentLeader = null;
+    this.timestamp = 0;
+    this.messageId = 0;
+    this.nextProcessId = 5;
   }
 
   getState(): SimulationState {
     return {
-      processes: this.processes,
-      messages: this.messages,
+      processes: [...this.processes],
+      messages: [...this.messages],
       currentLeader: this.currentLeader,
-      electionInProgress: this.processes.some((p) => p.state === 'ELECTION_IN_PROGRESS'),
-      messageLog: this.messageLog,
+      electionInProgress: this.processes.some(
+        p => p.state === 'ELECTION_IN_PROGRESS',
+      ),
       timestamp: this.timestamp,
     };
   }
 
+  getAllProcessIds(): number[] {
+    return this.processes.map(p => p.id).sort((a, b) => a - b);
+  }
+
   getProcessCount(): number {
-    return this.processCount;
-  }
-
-  reset(): void {
-    this.processes = this.initializeProcesses(this.processCount);
-    this.messages = [];
-    this.messageLog = [];
-    this.currentLeader = this.processCount - 1;
-    this.processes[this.currentLeader].isCoordinator = true;
-    this.processes[this.currentLeader].state = 'COORDINATOR';
-    this.timestamp = 0;
-    this.messageId = 0;
-    this.logMessage(`[INIT] Simulateur réinitialisé. Coordinateur initial: Processus ${this.currentLeader}`);
-  }
-
-  recoverProcess(processId: number): void {
-    if (processId >= this.processCount || processId < 0) {
-      this.logMessage(`[ERREUR] Processus invalide: ${processId}`);
-      return;
-    }
-
-    this.processes[processId].isFailed = false;
-    this.processes[processId].state = 'IDLE';
-    this.logMessage(`[RÉCUPÉRATION] Processus ${processId} est revenu en ligne`);
+    return this.processes.length;
   }
 }

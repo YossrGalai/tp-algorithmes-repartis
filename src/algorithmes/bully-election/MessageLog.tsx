@@ -1,90 +1,92 @@
-import React, { useRef, useEffect, useState } from 'react';
-import type { Message } from './types.ts';
-import './styles.css';
+import React, { useEffect, useRef } from 'react';
+import type { Message } from './types';
 
 interface MessageLogProps {
   messages: Message[];
-  messageLog: string[];
 }
 
-export const MessageLog: React.FC<MessageLogProps> = ({ messageLog }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
-  const [filter, setFilter] = useState<'ALL' | 'ELECTION' | 'OK' | 'ELECTED'>('ALL');
-  const logEndRef = useRef<HTMLDivElement>(null);
+export const MessageLog: React.FC<MessageLogProps> = ({ messages }) => {
+  const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messageLog]);
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
-  const filteredLog = messageLog.filter((msg) => {
-    if (filter === 'ALL') return true;
-    return msg.includes(filter);
-  });
+  const getEntryClass = (type: string): string => {
+    switch (type) {
+      case 'ELECTION':
+        return 'log-entry election';
+      case 'OK':
+        return 'log-entry ok';
+      case 'ELECTED':
+        return 'log-entry elected';
+      case 'COORDINATOR':
+        return 'log-entry coordinator';
+      default:
+        return 'log-entry';
+    }
+  };
 
-  const visibleLogCount = isExpanded ? filteredLog.length : Math.min(5, filteredLog.length);
+  const countElection = messages.filter(m => m.type === 'ELECTION').length;
+  const countOk = messages.filter(m => m.type === 'OK').length;
+  const countElected = messages.filter(m => m.type === 'COORDINATOR').length;
 
   return (
     <div className="message-log-container">
-      <div className="message-log-header">
-        <h3>Journal des Messages</h3>
-        <div className="filter-controls">
-          <button
-            className={`filter-btn ${filter === 'ALL' ? 'active' : ''}`}
-            onClick={() => setFilter('ALL')}
-          >
-            Tous ({messageLog.length})
-          </button>
-          <button
-            className={`filter-btn ${filter === 'ELECTION' ? 'active' : ''}`}
-            onClick={() => setFilter('ELECTION')}
-          >
-            ELECTION
-          </button>
-          <button
-            className={`filter-btn ${filter === 'OK' ? 'active' : ''}`}
-            onClick={() => setFilter('OK')}
-          >
-            OK
-          </button>
-          <button
-            className={`filter-btn ${filter === 'ELECTED' ? 'active' : ''}`}
-            onClick={() => setFilter('ELECTED')}
-          >
-            ELECTED
-          </button>
-        </div>
+      <h3>Journal des messages</h3>
+
+      <div className="message-log">
+        {messages.length === 0 ? (
+          <div className="log-empty">Aucun message — lancez une élection.</div>
+        ) : (
+          messages.map(msg => {
+            const baseClass = getEntryClass(msg.type);
+            const failure = msg.toFailed === true;
+            const cls = failure ? `${baseClass} failure` : baseClass;
+            return (
+              <div key={msg.id} className={cls}>
+                <span className="log-arrow">P{msg.from} → P{msg.to}:</span>
+                <span style={{ marginLeft: 8 }}>{msg.content}</span>
+              </div>
+            );
+          })
+        )}
+        <div ref={bottomRef} />
       </div>
-
-      <div className={`message-log ${isExpanded ? 'expanded' : 'collapsed'}`}>
-        {filteredLog.slice(0, visibleLogCount).map((msg, index) => {
-          const isError = msg.includes('ERREUR');
-          const isCritical = msg.includes('CRITIQUE');
-          const isSuccess = msg.includes('SUCCÈS');
-
-          return (
-            <div
-              key={index}
-              className={`log-entry ${isError ? 'error' : isCritical ? 'critical' : isSuccess ? 'success' : ''}`}
-            >
-              {msg}
-            </div>
-          );
-        })}
-        <div ref={logEndRef} />
-      </div>
-
-      <button className="toggle-btn" onClick={() => setIsExpanded(!isExpanded)}>
-        {isExpanded ? '- Afficher moins' : '+ Afficher plus'}
-      </button>
 
       <div className="message-summary">
-        <strong>Résumé:</strong>
-        <ul>
-          <li>Messages ELECTION: {messageLog.filter((m) => m.includes('ELECTION')).length}</li>
-          <li>Messages OK: {messageLog.filter((m) => m.includes('MESSAGE OK')).length}</li>
-          <li>Messages ELECTED: {messageLog.filter((m) => m.includes('MESSAGE ELECTED')).length}</li>
-          <li>Total: {messageLog.length}</li>
+        <div className="summary-item">
+          <span className="summary-count">{countElection}</span>
+          <span className="summary-label">ELECTION</span>
+        </div>
+        <div className="summary-item">
+          <span className="summary-count">{countOk}</span>
+          <span className="summary-label">OK</span>
+        </div>
+        <div className="summary-item">
+          <span className="summary-count">{countElected}</span>
+          <span className="summary-label">ELECTED</span>
+        </div>
+        <div className="summary-item">
+          <span className="summary-count">{messages.length}</span>
+          <span className="summary-label">Total</span>
+        </div>
+      </div>
+      <div className="details-section" style={{ marginTop: 12 }}>
+        <h4>Hypothèses</h4>
+        <ul className="details-list">
+          <li>Le réseau de communication est fiable et synchrone (borne connue sur le temps de communication)</li>
+          <li>Chaque processus connaît l'identité des autres</li>
         </ul>
+      </div>
+
+      <div className="details-section" style={{ marginTop: 12 }}>
+        <h4>Complexité</h4>
+        <div>
+          <p>Pour N processus :</p>
+          <p><strong>Pire cas</strong> : le plus petit processus lance l'élection → O(n²) messages.</p>
+          <p><strong>Meilleur cas</strong> : le futur leader lance l'élection → n − 1 messages.</p>
+        </div>
       </div>
     </div>
   );

@@ -1,175 +1,147 @@
 import React, { useState } from 'react';
-import './styles.css';
 
 interface ControlsProps {
-  processCount: number;
   currentLeader: number | null;
   onStartElection: (processId: number) => void;
   onSimulateFailure: (processId: number) => void;
   onRecoverProcess: (processId: number) => void;
   onReset: () => void;
   failedProcesses: number[];
+  allProcessIds: number[];
+  totalCount: number;
 }
 
 export const Controls: React.FC<ControlsProps> = ({
-  processCount,
   currentLeader,
   onStartElection,
   onSimulateFailure,
   onRecoverProcess,
   onReset,
   failedProcesses,
+  allProcessIds,
+  totalCount,
 }) => {
-  const [selectedProcess, setSelectedProcess] = useState<number>(0);
-  const [useRandom, setUseRandom] = useState(false);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
 
-  const handleStartElection = () => {
-    if (useRandom) {
-      const aliveProcesses = Array.from({ length: processCount }, (_, i) => i).filter(
-        (id) => !failedProcesses.includes(id)
-      );
+  const activeCount = allProcessIds.filter(id => !failedProcesses.includes(id)).length;
+  const selectedProcess = selectedId !== null ? allProcessIds.find(id => id === selectedId) : undefined;
+  const isFailed = selectedId !== null && failedProcesses.includes(selectedId);
 
-      if (aliveProcesses.length === 0) {
-        alert('Tous les processus sont en panne!');
-        return;
-      }
-
-      const randomId = aliveProcesses[Math.floor(Math.random() * aliveProcesses.length)];
-      onStartElection(randomId);
-    } else {
-      if (failedProcesses.includes(selectedProcess)) {
-        alert(`Le processus ${selectedProcess} est en panne et ne peut pas initier l'élection!`);
-        return;
-      }
-      onStartElection(selectedProcess);
-    }
-  };
-
-  const handleSimulateFailure = () => {
-    if (failedProcesses.includes(selectedProcess)) {
-      alert(`Le processus ${selectedProcess} est déjà en panne!`);
-      return;
-    }
-    onSimulateFailure(selectedProcess);
-  };
-
-  const handleRecoverProcess = (processId: number) => {
-    onRecoverProcess(processId);
+  const handleSelect = (id: number) => {
+    setSelectedId(prev => (prev === id ? null : id));
   };
 
   return (
     <div className="controls-container">
-      <div className="control-section">
-        <h3>Contrôles</h3>
+      <h3>Contrôles</h3>
 
+      {/* Process selector */}
+      <div className="control-section">
         <div className="control-group">
-          <label>Sélectionner un Processus:</label>
+          <label>Sélectionner un processus</label>
           <div className="process-selector">
-            {Array.from({ length: processCount }, (_, i) => (
+            {allProcessIds.map(id => (
               <button
-                key={i}
-                className={`process-btn ${
-                  selectedProcess === i
-                    ? 'selected'
-                    : failedProcesses.includes(i)
-                      ? 'failed'
-                      : currentLeader === i
-                        ? 'leader'
-                        : ''
-                }`}
-                onClick={() => setSelectedProcess(i)}
-                title={
-                  failedProcesses.includes(i)
-                    ? `Processus ${i} (EN PANNE)`
-                    : currentLeader === i
-                      ? `Processus ${i} (COORDINATEUR)`
-                      : `Processus ${i}`
-                }
+                key={id}
+                className={[
+                  'process-btn',
+                  selectedId === id ? 'selected' : '',
+                  currentLeader === id ? 'leader' : '',
+                  failedProcesses.includes(id) ? 'failed' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+                onClick={() => handleSelect(id)}
               >
-                {i}
+                P{id}
               </button>
             ))}
           </div>
         </div>
+      </div>
 
-        <div className="control-group">
-          <label>
-            <input
-              type="checkbox"
-              checked={useRandom}
-              onChange={(e) => setUseRandom(e.target.checked)}
-            />
-            Choix aléatoire du processus pour l'élection
-          </label>
-        </div>
-
-        <div className="control-group">
-          <button className="btn btn-primary" onClick={handleStartElection}>
-            Démarrer Élection
-          </button>
-        </div>
-
-        <div className="control-group">
-          <button className="btn btn-danger" onClick={handleSimulateFailure}>
-            Simuler Panne du Processus {selectedProcess}
-          </button>
-        </div>
-
-        {failedProcesses.length > 0 && (
+      {/* Actions for selected process */}
+      {selectedId !== null && selectedProcess !== undefined && (
+        <div className="control-section">
           <div className="control-group">
-            <label>Processus en panne:</label>
-            <div className="failed-processes">
-              {failedProcesses.map((id) => (
-                <div key={id} className="failed-process-item">
-                  <span>Processus {id}</span>
-                  <button
-                    className="btn btn-small btn-success"
-                    onClick={() => handleRecoverProcess(id)}
-                  >
-                    Récupérer
-                  </button>
-                </div>
-              ))}
+            <label>Actions — P{selectedId}</label>
+            <div className="action-buttons">
+              {!isFailed && (
+                <button
+                  className="btn btn-primary"
+                  onClick={() => {
+                    onStartElection(selectedId);
+                  }}
+                >
+                  Lancer une élection
+                </button>
+              )}
+
+              {!isFailed ? (
+                <button
+                  className="btn btn-danger"
+                  onClick={() => {
+                    onSimulateFailure(selectedId);
+                    setSelectedId(null);
+                  }}
+                >
+                  Simuler une panne
+                </button>
+              ) : (
+                <button
+                  className="btn btn-success"
+                  onClick={() => {
+                    onRecoverProcess(selectedId);
+                    setSelectedId(null);
+                  }}
+                >
+                  Réparer le processus
+                </button>
+              )}
             </div>
           </div>
-        )}
-
-        <div className="control-group">
-          <button className="btn btn-secondary" onClick={onReset}>
-            Réinitialiser
-          </button>
         </div>
-      </div>
+      )}
 
+      {/* Stats */}
       <div className="info-section">
-        <h4>Informations Système</h4>
+        <h4>Statistiques</h4>
         <div className="info-item">
-          <strong>Nombre de Processus:</strong> {processCount}
+          <span>Total</span>
+          <strong>{totalCount}</strong>
         </div>
         <div className="info-item">
-          <strong>Coordinateur Actuel:</strong>
+          <span>Actifs</span>
+          <strong>{activeCount}</strong>
+        </div>
+        <div className="info-item">
+          <span>En panne</span>
+          <strong>{failedProcesses.length}</strong>
+        </div>
+        <div className="info-item">
+          <span>Leader</span>
           {currentLeader !== null ? (
-            <span className="coordinator-badge">Processus {currentLeader}</span>
+            <span className="coordinator-badge">P{currentLeader}</span>
           ) : (
-            <span className="no-leader">Aucun coordinateur</span>
+            <span className="no-leader">Aucun</span>
           )}
         </div>
-        <div className="info-item">
-          <strong>Processus en Panne:</strong> {failedProcesses.length}
-        </div>
-        <div className="info-item">
-          <strong>Processus Actifs:</strong> {processCount - failedProcesses.length}
-        </div>
       </div>
 
+      {/* Reset */}
+      <div className="control-section" style={{ marginTop: 'auto' }}>
+        <button className="btn btn-reset" onClick={onReset}>
+          Réinitialiser
+        </button>
+      </div>
+
+      {/* Algorithm reminder */}
       <div className="algorithm-info">
-        <h4>Algorithme Bully - Résumé</h4>
+        <h4>Principe</h4>
         <ul>
-          <li>P envoie ELECTION à tous les processus avec ID supérieur</li>
-          <li>Si aucune réponse → P gagne l'élection</li>
-          <li>P envoie ELECTED à tous les processus</li>
-          <li>Cas worst: O(n²) messages</li>
-          <li>Cas best: (n-1) messages</li>
+          <li>Un processus envoie ELECTION aux IDs supérieurs</li>
+          <li>Les supérieurs répondent OK et lancent leur propre élection</li>
+          <li>Le plus haut ID actif gagne et envoie COORDINATOR à tous</li>
         </ul>
       </div>
     </div>
