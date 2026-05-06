@@ -224,9 +224,6 @@ h1 {
   border-color: #cbd5e1;
   opacity: 0.6;
 }
-  box-shadow: 0 0 25px rgba(74, 222, 128, 0.4);
-  background: rgba(74, 222, 128, 0.1);
-}
 
 .id-label {
   font-weight: 700;
