@@ -1,0 +1,126 @@
+.event-log {
+  padding: 22px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 24px;
+  margin-top: 16px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.08);
+}
+
+.log-title {
+  margin: 0 0 18px;
+  font-size: 1.25rem;
+  letter-spacing: -0.02em;
+  color: #0f172a;
+}
+
+.log-list {
+  max-height: 340px;
+  overflow-y: auto;
+  display: grid;
+  gap: 10px;
+  padding-right: 4px;
+}
+
+.log-row {
+  display: grid;
+  grid-template-columns: auto minmax(130px, minmax(140px, 1fr)) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 14px 16px;
+  background: #f8fafc;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 18px;
+  transition: transform 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.log-row:hover {
+  transform: translateY(-1px);
+  background: #ffffff;
+  border-color: rgba(99, 102, 241, 0.28);
+}
+
+.log-row--new {
+  background: linear-gradient(90deg, rgba(59, 130, 246, 0.08), rgba(255, 255, 255, 0.9));
+  border-color: rgba(59, 130, 246, 0.35);
+}
+
+.log-index {
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #e0e7ff;
+  color: #3730a3;
+  font-weight: 700;
+}
+
+.log-type-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 12px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+.ev-token-sent {
+  color: #991b1b;
+  background: rgba(254, 202, 202, 0.35);
+}
+
+.ev-token-recv {
+  color: #0f766e;
+  background: rgba(167, 243, 208, 0.4);
+}
+
+.ev-enter-cs {
+  color: #78350f;
+  background: rgba(254, 215, 170, 0.45);
+}
+
+.ev-exit-cs {
+  color: #166534;
+  background: rgba(187, 247, 208, 0.45);
+}
+
+.ev-request {
+  color: #1d4ed8;
+  background: rgba(191, 219, 254, 0.55);
+}
+
+.ev-pass {
+  color: #6b21a8;
+  background: rgba(237, 233, 254, 0.55);
+}
+
+.log-msg {
+  color: #334155;
+  font-size: 0.96rem;
+  line-height: 1.45;
+}
+
+.log-time {
+  justify-self: end;
+  color: #64748b;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+@media (max-width: 780px) {
+  .log-row {
+    grid-template-columns: auto 1fr;
+    grid-template-rows: auto auto;
+  }
+
+  .log-time {
+    justify-self: start;
+  }
+}

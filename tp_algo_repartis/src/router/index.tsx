@@ -1,6 +1,7 @@
 import { createBrowserRouter } from 'react-router-dom';
 import HomePage from '../pages/HomePage.tsx';
 import RicartAgrawalaApp from '../pages/ricartagrawalaapp.tsx';
+import TokenRingPage from '../pages/TokenRingPage.tsx';
 import Placeholder from '../pages/Placeholder.tsx';
 
 
@@ -15,7 +16,7 @@ const router = createBrowserRouter([
   },
   {
     path: '/token-ring',
-    element: <Placeholder name="Token Ring" />,
+    element: <TokenRingPage />,
   },
   {
     path: '/bully',

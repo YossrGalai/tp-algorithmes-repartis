@@ -1,0 +1,146 @@
+.process-node {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+  border-radius: 20px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  background: #ffffff;
+  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.07);
+  transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+}
+
+.process-node:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 28px 60px rgba(15, 23, 42, 0.12);
+}
+
+.process-node.has-token {
+  border-color: rgba(59, 130, 246, 0.45);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1), 0 18px 45px rgba(59, 130, 246, 0.12);
+}
+
+.pn-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 8px;
+}
+
+.pn-emoji {
+  font-size: 2.2rem;
+  line-height: 1;
+}
+
+.pn-id {
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.pn-badge {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  background: rgba(59, 130, 246, 0.1);
+  color: #2563eb;
+}
+
+.token-badge {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(96, 165, 250, 0.15));
+}
+
+.pn-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pn-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.pn-key {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.pn-val {
+  font-size: 0.95rem;
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.state-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 12px;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  min-width: 120px;
+  text-align: center;
+}
+
+.state-idle {
+  background: rgba(15, 160, 176, 0.12);
+  color: #0d6e7f;
+  border: 1px solid rgba(15, 160, 176, 0.24);
+}
+
+.state-waiting {
+  background: rgba(245, 158, 11, 0.14);
+  color: #9a3412;
+  border: 1px solid rgba(245, 158, 11, 0.28);
+}
+
+.state-critical {
+  background: rgba(239, 68, 68, 0.15);
+  color: #7f1d1d;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  animation: pulse-critical 2s ease-in-out infinite;
+}
+
+.state-done {
+  background: rgba(34, 197, 94, 0.12);
+  color: #15803d;
+  border: 1px solid rgba(34, 197, 94, 0.25);
+}
+
+@keyframes pulse-critical {
+  0%, 100% {
+    box-shadow: inset 0 0 0 2px rgba(239, 68, 68, 0.3);
+  }
+  50% {
+    box-shadow: inset 0 0 0 2px rgba(239, 68, 68, 0.5);
+  }
+}
+
+@media (max-width: 480px) {
+  .process-node {
+    padding: 16px;
+    gap: 14px;
+  }
+
+  .pn-id {
+    font-size: 1.2rem;
+  }
+
+  .pn-emoji {
+    font-size: 1.8rem;
+  }
+}

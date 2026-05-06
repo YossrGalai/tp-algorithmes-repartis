@@ -1,0 +1,54 @@
+.ring-visualization {
+  padding: 16px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.ring-visualization h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.ring-svg {
+  max-width: 100%;
+  height: auto;
+  border: 1px solid #eee;
+  border-radius: 4px;
+  background-color: #fafafa;
+}
+
+.process-label {
+  font-size: 14px;
+  font-weight: bold;
+  fill: #333;
+}
+
+.token-indicator {
+  font-size: 20px;
+}
+
+.ring-legend {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  justify-content: center;
+  width: 100%;
+  font-size: 12px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend-color {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  border: 1px solid #999;
+}
