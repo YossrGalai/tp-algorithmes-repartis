@@ -8,8 +8,14 @@ interface MessageLogProps {
 export const MessageLog: React.FC<MessageLogProps> = ({ messages }) => {
   const bottomRef = useRef<HTMLDivElement>(null);
 
+  // Auto-scroll le journal interne uniquement (sans affecter le scroll global)
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (bottomRef.current) {
+      const scrollParent = bottomRef.current.closest('.message-log') as HTMLElement;
+      if (scrollParent) {
+        scrollParent.scrollTop = scrollParent.scrollHeight;
+      }
+    }
   }, [messages]);
 
   const getEntryClass = (type: string): string => {

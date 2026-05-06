@@ -145,7 +145,7 @@ export const ProcessGraph: React.FC<ProcessGraphProps> = ({
 
       // ── Dots animés ──────────────────────────────────────────────────────
       animDotsRef.current = animDotsRef.current.filter(dot => {
-        dot.progress = Math.min(dot.progress + 0.035, 1);
+        dot.progress = Math.min(dot.progress + 0.02, 1);
         const x = dot.fx + (dot.tx - dot.fx) * dot.progress;
         const y = dot.fy + (dot.ty - dot.fy) * dot.progress;
 
