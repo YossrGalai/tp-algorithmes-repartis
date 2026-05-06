@@ -1,24 +1,25 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import './RingElectionApp.css';
 import RingView from './RingView';
 import { INITIAL_PROCESSES, MESSAGE_TYPES, handleMessage } from './election';
+import type { ProcessState, RingMessage } from './election';
 
 const RING_SIZE = 360;
 const STEP_DELAY = 1500; // ms between steps
 
 export default function RingElectionApp() {
-  const [processes, setProcesses] = useState(INITIAL_PROCESSES);
-  const [logs, setLogs] = useState([]);
-  const [activeId, setActiveId] = useState(null);
-  const [leaderId, setLeaderId] = useState(null);
-  const [message, setMessage] = useState(null); // { fromIndex, toIndex, type, value }
+  const [processes, setProcesses] = useState<ProcessState[]>(INITIAL_PROCESSES);
+  const [logs, setLogs] = useState<string[]>([]);
+  const [activeId, setActiveId] = useState<number | null>(null);
+  const [leaderId, setLeaderId] = useState<number | null>(null);
+  const [message, setMessage] = useState<RingMessage | null>(null);
   const [isSimulating, setIsSimulating] = useState(false);
-  const [messagePos, setMessagePos] = useState(null);
+  const [messagePos, setMessagePos] = useState<{ x: number; y: number } | null>(null);
 
-  const simulationRef = useRef(null);
+  const simulationRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Helper to get coordinates for a node index
-  const getNodePos = (index) => {
+  const getNodePos = (index: number) => {
     const angle = (index / processes.length) * 2 * Math.PI - Math.PI / 2;
     const radius = RING_SIZE / 2;
     return {
@@ -32,8 +33,8 @@ export default function RingElectionApp() {
   };
 
   const resetSystem = () => {
-    if (simulationRef.current) clearTimeout(simulationRef.current);
-    setProcesses(processes.map(p => ({ ...p, isActive: false, isLeader: false, isFailed: false })));
+    if (simulationRef.current !== null) clearTimeout(simulationRef.current);
+    setProcesses(processes.map((p) => ({ ...p, isActive: false, isLeader: false, isFailed: false })));
     setLogs([]);
     setActiveId(null);
     setLeaderId(null);
@@ -56,17 +57,17 @@ export default function RingElectionApp() {
 
   const addProcess = () => {
     if (isSimulating) return;
-    const newId = processes.length > 0 ? Math.max(...processes.map(p => p.id)) + 1 : 1;
-    const newProcesses = [...processes, { id: newId, isActive: false, isLeader: false, isFailed: false, queue: [] }];
+    const newId = processes.length > 0 ? Math.max(...processes.map((p) => p.id)) + 1 : 1;
+    const newProcesses: ProcessState[] = [...processes, { id: newId, isActive: false, isLeader: false, isFailed: false, queue: [] }];
     setProcesses(newProcesses);
     addLog(`Nouveau processus P${newId} ajouté.`);
   };
 
   const failProcess = (id: number) => {
     const wasLeader = id === leaderId;
-    const isNowFailed = !processes.find(p => p.id === id)?.isFailed;
+    const isNowFailed = !processes.find((p) => p.id === id)?.isFailed;
 
-    setProcesses(processes.map(p => p.id === id ? { ...p, isFailed: !p.isFailed, isLeader: false } : p));
+    setProcesses(processes.map((p) => (p.id === id ? { ...p, isFailed: !p.isFailed, isLeader: false } : p)));
     
     if (isNowFailed) {
       addLog(`P${id} vient de tomber en panne !`);
@@ -75,7 +76,7 @@ export default function RingElectionApp() {
         // On attend un court instant que l'état React se mette à jour pour le nœud HS
         setTimeout(() => {
           // Trouver le premier processus vivant pour initier l'élection
-          const firstAliveIdx = processes.findIndex(p => p.id !== id && !p.isFailed);
+          const firstAliveIdx = processes.findIndex((p) => p.id !== id && !p.isFailed);
           if (firstAliveIdx !== -1) {
             startElection(firstAliveIdx);
           }
@@ -88,14 +89,14 @@ export default function RingElectionApp() {
 
   const removeProcess = (id: number) => {
     if (isSimulating || processes.length <= 3) return;
-    setProcesses(processes.filter(p => p.id !== id));
+    setProcesses(processes.filter((p) => p.id !== id));
     addLog(`Processus P${id} supprimé.`);
   };
 
   const updateId = (oldId: number, newIdInput: string) => {
     const newId = parseInt(newIdInput);
     if (isNaN(newId)) return;
-    if (processes.some(p => p.id === newId)) {
+    if (processes.some((p) => p.id === newId)) {
       alert("Cet ID existe déjà !");
       return;
     }
@@ -107,7 +108,7 @@ export default function RingElectionApp() {
     if (processes.length === 0) return;
     
     // Si une simulation est déjà en cours, on l'arrête proprement avant d'en lancer une nouvelle
-    if (simulationRef.current) clearTimeout(simulationRef.current);
+    if (simulationRef.current !== null) clearTimeout(simulationRef.current);
     
     // Partial reset
     setLogs([]);
@@ -122,7 +123,7 @@ export default function RingElectionApp() {
     
     // Si l'initiateur choisi est mort, on prend le premier vivant
     if (processes[startIndex].isFailed) {
-      startIndex = processes.findIndex(p => !p.isFailed);
+      startIndex = processes.findIndex((p) => !p.isFailed);
     }
 
     if (startIndex === -1) {
@@ -143,7 +144,7 @@ export default function RingElectionApp() {
     if (nextIdx === startIndex) {
       addLog(`P${startProc.id} est le seul survivant. Il devient Leader.`);
       setLeaderId(startProc.id);
-      setProcesses(prev => prev.map(p => p.id === startProc.id ? { ...p, isLeader: true } : { ...p, isLeader: false }));
+      setProcesses((prev) => prev.map((p) => (p.id === startProc.id ? { ...p, isLeader: true } : { ...p, isLeader: false })));
       setIsSimulating(false);
       return;
     }
@@ -178,7 +179,7 @@ export default function RingElectionApp() {
         const result = handleMessage(targetNode, message);
         addLog(result.log);
 
-        let nextMessage = null;
+    let nextMessage: RingMessage | null = null;
         if (result.action !== 'STOP') {
           // Calculer le prochain nœud vivant à chaque étape
           let nextIdx = (message.toIndex + 1) % processes.length;
@@ -192,11 +193,11 @@ export default function RingElectionApp() {
 
           if (result.action === 'WIN') {
             setLeaderId(result.newValue);
-            setProcesses(prev => prev.map(p => p.id === result.newValue ? { ...p, isLeader: true } : { ...p, isLeader: false }));
+            setProcesses((prev) => prev.map((p) => (p.id === result.newValue ? { ...p, isLeader: true } : { ...p, isLeader: false })));
             addLog(`P${result.newValue} envoie COORDINATOR(${result.newValue})`);
           } else if (result.action === 'FORWARD_COORDINATOR') {
             setLeaderId(result.newValue);
-            setProcesses(prev => prev.map(p => p.id === result.newValue ? { ...p, isLeader: true } : p));
+            setProcesses((prev) => prev.map((p) => (p.id === result.newValue ? { ...p, isLeader: true } : p)));
           }
 
           nextMessage = {
@@ -251,8 +252,8 @@ export default function RingElectionApp() {
             leaderId={leaderId}
             messagePos={messagePos}
             ringSize={RING_SIZE}
-            onInitiateElection={(id) => {
-              const idx = processes.findIndex(p => p.id === id);
+            onInitiateElection={(id: number) => {
+              const idx = processes.findIndex((p) => p.id === id);
               startElection(idx);
             }}
             isSimulating={isSimulating}
@@ -261,7 +262,7 @@ export default function RingElectionApp() {
           <div className="process-list-management">
             <h3>Gérer les processus</h3>
             <div className="id-grid">
-              {[...processes].sort((a, b) => a.id - b.id).map(p => (
+              {[...processes].sort((a, b) => a.id - b.id).map((p) => (
                 <div key={p.id} className={`id-item ${p.isFailed ? 'failed' : ''}`}>
                   <span className="p-label">P{p.id}</span>
                   <input 

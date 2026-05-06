@@ -3,6 +3,7 @@ import HomePage from '../pages/HomePage.tsx';
 import RicartAgrawalaApp from '../pages/ricartagrawalaapp.tsx';
 import Placeholder from '../pages/Placeholder.tsx';
 import RingElectionPage from '../pages/RingElectionPage.tsx';
+import Snapshots from '../pages/Snapshots.tsx';
 import ScrollToTop from './ScrollToTop';
 
 const router = createBrowserRouter([
@@ -34,6 +35,10 @@ const router = createBrowserRouter([
       {
         path: '/ring-election',
         element: <RingElectionPage />,
+      },
+      {
+        path: '/snapshots',
+        element: <Snapshots />,
       },
     ],
   },

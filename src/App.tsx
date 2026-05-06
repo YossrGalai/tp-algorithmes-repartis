@@ -1,5 +1,4 @@
-import React from 'react';
-import RingElectionApp from './ring-election/App';
+import RingElectionApp from './algorithmes/ring-election/RingElectionApp';
 
 function App() {
   return (
