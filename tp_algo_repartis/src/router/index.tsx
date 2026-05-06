@@ -2,6 +2,7 @@ import { createBrowserRouter } from 'react-router-dom';
 import HomePage from '../pages/HomePage.tsx';
 import RicartAgrawalaApp from '../pages/ricartagrawalaapp.tsx';
 import Placeholder from '../pages/Placeholder.tsx';
+import Snapshots from '../pages/Snapshots.tsx';
 
 
 const router = createBrowserRouter([
@@ -24,6 +25,10 @@ const router = createBrowserRouter([
   {
     path: '/ring-election',
     element: <Placeholder name="Ring Election Algorithm" />,
+  },
+  {
+    path: '/snapshots',
+    element: <Snapshots />,
   },
 ]);
 

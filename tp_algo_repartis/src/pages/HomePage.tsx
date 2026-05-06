@@ -117,6 +117,28 @@ const algorithms: AlgorithmItem[] = [
     ),
     tags: ['Anneau', 'ID max', 'Un tour'],
   },
+  {
+    id: 'snapshots',
+    path: '/snapshots',
+    title: 'Chandy-Lamport',
+    category: 'Instantanés',
+    description:
+      'Algorithme de prise d’instantané distribué qui capture un état cohérent du système sans arrêter les processus. Les marqueurs délimitent la frontière de l’instantané.',
+    color: '#8b5cf6',
+    light: '#f5f3ff',
+    border: '#ddd6fe',
+    icon: (
+      <svg width="38" height="38" viewBox="0 0 38 38" fill="none">
+        <rect x="6" y="8" width="10" height="10" rx="3" fill="#8b5cf6" opacity="0.9" />
+        <rect x="22" y="8" width="10" height="10" rx="3" fill="#8b5cf6" opacity="0.7" />
+        <rect x="14" y="22" width="10" height="10" rx="3" fill="#8b5cf6" opacity="0.5" />
+        <path d="M11 13H27" stroke="#8b5cf6" strokeWidth="1.6" strokeDasharray="3 2" />
+        <path d="M19 18V22" stroke="#8b5cf6" strokeWidth="1.6" strokeDasharray="3 2" />
+        <circle cx="19" cy="28" r="3" fill="#f59e0b" />
+      </svg>
+    ),
+    tags: ['Instantané', 'Marqueurs', 'Cohérence'],
+  },
 ];
 
 export default function HomePage() {
@@ -202,6 +224,22 @@ export default function HomePage() {
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
             {algorithms.filter((a) => a.category === 'Élection').map((algo) => (
+              <AlgoCard key={algo.id} algo={algo} onClick={() => navigate(algo.path)} />
+            ))}
+          </div>
+        </div>
+
+        {/* Section: Instantanés */}
+        <div style={{ marginTop: 36 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
+            <div style={{ height: 1, flex: 1, background: '#e2e8f0' }} />
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', letterSpacing: 2, textTransform: 'uppercase' }}>
+              Instantanés Distribués
+            </span>
+            <div style={{ height: 1, flex: 1, background: '#e2e8f0' }} />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16 }}>
+            {algorithms.filter((a) => a.category === 'Instantanés').map((algo) => (
               <AlgoCard key={algo.id} algo={algo} onClick={() => navigate(algo.path)} />
             ))}
           </div>
