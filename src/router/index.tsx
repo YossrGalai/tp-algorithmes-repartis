@@ -3,6 +3,7 @@ import HomePage from '../pages/HomePage.tsx';
 import RicartAgrawalaApp from '../pages/ricartagrawalaapp.tsx';
 import Placeholder from '../pages/Placeholder.tsx';
 import RingElectionPage from '../pages/RingElectionPage.tsx';
+import BullyElectionPage from '../pages/BullyElectionPage.tsx';
 import ScrollToTop from './ScrollToTop';
 
 const router = createBrowserRouter([
@@ -29,7 +30,7 @@ const router = createBrowserRouter([
       },
       {
         path: '/bully',
-        element: <Placeholder name="Bully Algorithm" />,
+        element: <BullyElectionPage />,
       },
       {
         path: '/ring-election',
