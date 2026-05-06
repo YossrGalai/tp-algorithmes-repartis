@@ -1,7 +1,7 @@
 import React from 'react';
 import ProcessNode from './ProcessNode';
 
-const RingView = ({ processes, activeId, leaderId, messagePos, ringSize, onInitiateElection, isSimulating }) => {
+const RingView = ({ processes, activeId, leaderId, messagePos, ringSize }) => {
   const radius = ringSize / 2;
   
   return (
@@ -24,7 +24,7 @@ const RingView = ({ processes, activeId, leaderId, messagePos, ringSize, onIniti
             cy={radius} 
             r={radius} 
             fill="none" 
-            stroke="var(--ring-border)" 
+            stroke="rgba(0, 0, 0, 0.1)" 
             strokeWidth="2" 
             strokeDasharray="8,8" 
           />
@@ -45,11 +45,6 @@ const RingView = ({ processes, activeId, leaderId, messagePos, ringSize, onIniti
               isFailed={p.isFailed}
               angle={angle}
               ringSize={ringSize}
-              onInitiate={() => {
-                console.log("Node click triggered for ID:", p.id);
-                if (!isSimulating && !p.isFailed) onInitiateElection(p.id);
-              }}
-              isSimulating={isSimulating}
               // Calculate specific style for absolute positioning
               style={{
                 left: `${left}px`,
@@ -65,7 +60,6 @@ const RingView = ({ processes, activeId, leaderId, messagePos, ringSize, onIniti
             style={{
               left: `${messagePos.x}px`,
               top: `${messagePos.y}px`,
-              zIndex: 10 // Ensure message is on top
             }}
           />
         )}

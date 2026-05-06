@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import './App.css';
+import './RingElectionApp.css';
 import RingView from './RingView';
 import { INITIAL_PROCESSES, MESSAGE_TYPES, handleMessage } from './election';
 
@@ -28,7 +28,7 @@ export default function RingElectionApp() {
   };
 
   const addLog = (msg: string) => {
-    setLogs((prev) => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev]);
+    setLogs((prev) => [msg, ...prev]);
   };
 
   const resetSystem = () => {
@@ -223,6 +223,15 @@ export default function RingElectionApp() {
     <div className="simulation-container">
       <h1>Ring Election</h1>
       <p className="subtitle">Algorithme de Chang-Roberts</p>
+      <p style={{ 
+        color: 'var(--text-muted)', 
+        fontSize: '0.9rem', 
+        marginBottom: '1rem', 
+        textAlign: 'center',
+        padding: '0 1rem'
+      }}>
+        Cliquez sur lancer l'élection pour qu'un processus aléatoire le fasse, sinon cliquez sur le processus qui doit lancer l'élection.
+      </p>
 
       <div className="controls">
         <button className="btn-primary" onClick={() => startElection()} disabled={isSimulating}>
@@ -252,7 +261,7 @@ export default function RingElectionApp() {
           <div className="process-list-management">
             <h3>Gérer les processus</h3>
             <div className="id-grid">
-              {processes.map(p => (
+              {[...processes].sort((a, b) => a.id - b.id).map(p => (
                 <div key={p.id} className={`id-item ${p.isFailed ? 'failed' : ''}`}>
                   <span className="p-label">P{p.id}</span>
                   <input 
