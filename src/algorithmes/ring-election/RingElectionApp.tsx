@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import './RingElectionApp.css';
+// @ts-ignore
 import RingView from './RingView';
+// @ts-ignore
 import { INITIAL_PROCESSES, MESSAGE_TYPES, handleMessage } from './election';
 import type { ProcessState, RingMessage } from './election';
 
@@ -33,8 +35,8 @@ export default function RingElectionApp() {
   };
 
   const resetSystem = () => {
-    if (simulationRef.current !== null) clearTimeout(simulationRef.current);
-    setProcesses(processes.map((p) => ({ ...p, isActive: false, isLeader: false, isFailed: false })));
+    if (simulationRef.current) clearTimeout(simulationRef.current);
+    setProcesses(processes.map((p: any) => ({ ...p, isActive: false, isLeader: false, isFailed: false })));
     setLogs([]);
     setActiveId(null);
     setLeaderId(null);

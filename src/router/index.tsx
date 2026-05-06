@@ -1,11 +1,11 @@
 import { createBrowserRouter, Outlet } from 'react-router-dom';
 import HomePage from '../pages/HomePage.tsx';
 import RicartAgrawalaApp from '../pages/ricartagrawalaapp.tsx';
-import Placeholder from '../pages/Placeholder.tsx';
 import RingElectionPage from '../pages/RingElectionPage.tsx';
-import Snapshots from '../pages/Snapshots.tsx';
+import BullyElectionPage from '../pages/BullyElectionPage.tsx';
 import ScrollToTop from './ScrollToTop';
 import TokenRingPage from '../pages/TokenRingPage.tsx';
+import Snapshots from '../pages/Snapshots.tsx';
 
 const router = createBrowserRouter([
   {
@@ -31,7 +31,7 @@ const router = createBrowserRouter([
       },
       {
         path: '/bully',
-        element: <Placeholder name="Bully Algorithm" />,
+        element: <BullyElectionPage />,
       },
       {
         path: '/ring-election',
