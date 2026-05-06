@@ -18,17 +18,19 @@ const TYPE_CONFIG: Record<string, { label: string; className: string }> = {
 };
 
 export default function EventLog({ events }: EventLogProps) {
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const listRef  = useRef<HTMLDivElement>(null);
 
   // Auto-scroll vers le bas à chaque nouvel événement
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+   useEffect(() => {
+    if (listRef.current) {
+      listRef.current.scrollTop = listRef.current.scrollHeight; // ← scroll interne uniquement
+    }
   }, [events.length]);
 
   return (
     <div className="event-log">
       <h3 className="log-title">📋 Journal des événements</h3>
-      <div className="log-list">
+      <div className="log-list"ref={listRef}>
         {events.map((ev, idx) => {
           const cfg = TYPE_CONFIG[ev.type] ?? { label: ev.type, className: '' };
           const isLast = idx === events.length - 1;
@@ -45,7 +47,7 @@ export default function EventLog({ events }: EventLogProps) {
             </div>
           );
         })}
-        <div ref={bottomRef} />
+        
       </div>
     </div>
   );
