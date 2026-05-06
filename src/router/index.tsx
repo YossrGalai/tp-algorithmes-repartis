@@ -5,6 +5,7 @@ import Placeholder from '../pages/Placeholder.tsx';
 import RingElectionPage from '../pages/RingElectionPage.tsx';
 import Snapshots from '../pages/Snapshots.tsx';
 import ScrollToTop from './ScrollToTop';
+import TokenRingPage from '../pages/TokenRingPage.tsx';
 
 const router = createBrowserRouter([
   {
@@ -26,7 +27,7 @@ const router = createBrowserRouter([
       },
       {
         path: '/token-ring',
-        element: <Placeholder name="Token Ring" />,
+        element: <TokenRingPage />,
       },
       {
         path: '/bully',
