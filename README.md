@@ -166,48 +166,6 @@ Le protocole repose sur :
 
 ---
 
-## 🔄 Scénario simulé
-
-### Exemple avec 3 processus :
-
-- P1
-- P2
-- P3
-
-### Étapes :
-
-1. P1 demande l’accès à la ressource.
-2. P2 et P3 répondent avec REPLY.
-3. P1 entre en section critique.
-4. P1 libère la ressource.
-5. P2 peut ensuite accéder à la ressource.
-
----
-
-## 📨 Messages échangés
-
-| Type | Description |
-|---|---|
-| REQUEST | Demande d’accès à la ressource |
-| REPLY | Autorisation accordée |
-| RELEASE | Libération de la ressource |
-
----
-
-## ✅ Avantages
-
-- Garantit l’exclusion mutuelle
-- Pas de coordinateur central
-- Algorithme totalement distribué
-
----
-
-## ❌ Inconvénients
-
-- Grand nombre de messages
-- Temps d’attente plus élevé
-
----
 
 # Token Ring
 
@@ -221,29 +179,7 @@ Seul le processus possédant le jeton peut accéder à la ressource critique.
 
 ---
 
-## 🔄 Fonctionnement
 
-1. Le jeton circule entre les processus.
-2. Lorsqu’un processus reçoit le jeton :
-   - il entre en section critique s’il en a besoin,
-   - sinon il transmet le jeton au suivant.
-3. Le jeton continue de circuler dans l’anneau.
-
----
-
-## ✅ Avantages
-
-- Nombre réduit de messages
-- Gestion simple de l’accès
-
----
-
-## ❌ Inconvénients
-
-- Problème si le jeton est perdu
-- Sensible aux pannes
-
----
 
 # 👑 Partie 2 — Élection
 
@@ -257,25 +193,6 @@ Lorsqu’un coordinateur tombe en panne, un nouvel leader doit être élu automa
 
 Le processus ayant le plus grand identifiant devient coordinateur.
 
----
-
-## 🔄 Fonctionnement
-
-1. Détection de panne du leader.
-2. Envoi des messages ELECTION.
-3. Les processus ayant un ID supérieur répondent.
-4. Le processus avec le plus grand ID devient coordinateur.
-5. Diffusion du message COORDINATOR.
-
----
-
-## 📨 Messages utilisés
-
-| Message | Description |
-|---|---|
-| ELECTION | Déclenchement de l’élection |
-| OK | Réponse d’un processus supérieur |
-| COORDINATOR | Annonce du nouveau leader |
 
 ---
 
@@ -291,15 +208,6 @@ Le processus ayant l’ID maximal devient coordinateur.
 
 ---
 
-## 🔄 Fonctionnement
-
-1. Détection de la panne.
-2. Circulation du message d’élection.
-3. Comparaison des IDs.
-4. Sélection du plus grand ID.
-5. Annonce du nouveau coordinateur.
-
----
 
 # 📸 Partie 3 — Snapshot Distribué
 
@@ -317,117 +225,12 @@ Il permet :
 
 ---
 
-## ⚙️ Fonctionnement
 
-Le snapshot utilise des messages spéciaux appelés :
-
-```bash
-MARKER
-```
-
----
-
-## 🔄 Déroulement
-
-### 1️⃣ Initialisation
-
-Un processus démarre le snapshot :
-
-- sauvegarde son état local,
-- envoie un `MARKER` aux autres processus.
-
----
-
-### 2️⃣ Réception du premier MARKER
-
-Le processus :
-
-- enregistre son état,
-- sauvegarde l’état des canaux,
-- retransmet le `MARKER`.
-
----
-
-### 3️⃣ Réception des autres MARKER
-
-Le processus arrête l’enregistrement du canal correspondant.
-
----
-
-## 📨 Messages utilisés
-
-| Message | Description |
-|---|---|
-| MARKER | Déclenchement du snapshot |
-| STATE | Sauvegarde de l’état local |
-| CHANNEL STATE | Messages en transit |
-
----
-
-## 🧪 Exemple de journalisation
-
-```bash
-[P1] Snapshot démarré
-[P1] MARKER envoyé à P2 et P3
-[P2] État local sauvegardé
-[P2] MARKER retransmis
-[P3] Message en transit détecté
-[GLOBAL STATE] Snapshot terminé
-```
-
----
-
-## ✅ Avantages
-
-- Capture cohérente de l’état global
-- Aucun arrêt du système nécessaire
-- Très utile pour le monitoring distribué
-
----
-
-# 🧪 Scénarios de test
-
-Le projet inclut plusieurs scénarios :
-
-## 🔹 Accès concurrent
-
-Plusieurs processus demandent simultanément l’accès à la ressource critique.
-
----
-
-## 🔹 Circulation du jeton
-
-Simulation du Token Ring avec passage du jeton entre les processus.
-
----
-
-## 🔹 Panne du leader
-
-Le coordinateur actuel tombe en panne.
-
-Le système déclenche automatiquement une nouvelle élection.
-
----
 
 ## 🔹 Snapshot distribué
 
 Capture de l’état global du système pendant l’exécution des communications.
 
----
-
-## 🔹 Journalisation
-
-Tous les événements sont affichés :
-
-```bash
-[P1] REQUEST envoyé
-[P2] REPLY envoyé
-[P1] Entrée en section critique
-[P3] Jeton reçu
-[Leader] Panne détectée
-[P5] Nouveau coordinateur élu
-[P1] Snapshot démarré
-```
 
 ---
 
