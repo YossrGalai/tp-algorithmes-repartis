@@ -495,9 +495,6 @@ tp-algorithmes-repartis/
 
 Projet académique en systèmes distribués — Algorithmes Répartis.
 
-### GitHub
-
-https://github.com/YossrGalai
 
 ---
 
