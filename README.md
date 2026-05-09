@@ -146,93 +146,6 @@ http://localhost:3000
 
 ---
 
-# 🔐 Partie 1 — Exclusion Mutuelle
-
-L’exclusion mutuelle garantit qu’un seul processus peut accéder à une ressource critique à un instant donné.
-
----
-
-# Ricart–Agrawala
-
-## 📌 Principe
-
-Chaque processus doit demander l’autorisation des autres processus avant d’accéder à la ressource critique.
-
-Le protocole repose sur :
-
-- l’envoi de messages REQUEST,
-- la réception de messages REPLY,
-- un horodatage logique permettant de gérer les priorités.
-
----
-
-
-# Token Ring
-
-## 📌 Principe
-
-Les processus sont organisés sous forme d’anneau logique.
-
-Un jeton unique circule entre les processus.
-
-Seul le processus possédant le jeton peut accéder à la ressource critique.
-
----
-
-
-
-# 👑 Partie 2 — Élection
-
-Lorsqu’un coordinateur tombe en panne, un nouvel leader doit être élu automatiquement.
-
----
-
-# Bully Algorithm
-
-## 📌 Principe
-
-Le processus ayant le plus grand identifiant devient coordinateur.
-
-
----
-
-# Ring Election Algorithm
-
-## 📌 Principe
-
-Les processus sont organisés dans un anneau logique.
-
-Un message d’élection circule contenant les identifiants des processus actifs.
-
-Le processus ayant l’ID maximal devient coordinateur.
-
----
-
-
-# 📸 Partie 3 — Snapshot Distribué
-
-## Chandy–Lamport Snapshot Algorithm
-
-### 📌 Principe
-
-L’algorithme de snapshot distribué permet de capturer un état global cohérent du système sans interrompre l’exécution des processus.
-
-Il permet :
-
-- d’enregistrer l’état local des processus,
-- de sauvegarder les messages en transit,
-- d’observer le comportement global du système distribué.
-
----
-
-
-
-## 🔹 Snapshot distribué
-
-Capture de l’état global du système pendant l’exécution des communications.
-
-
----
 
 # 📊 Comparaison des algorithmes
 
@@ -277,16 +190,6 @@ tp-algorithmes-repartis/
 
 ---
 
-# 🔮 Améliorations futures
-
-- ✅ Détection automatique des pannes
-- ✅ Communication réseau réelle avec sockets
-- ✅ Ajout d’autres algorithmes répartis
-- ✅ Déploiement multi-machines
-- ✅ Visualisation réseau avancée
-- ✅ Interface temps réel plus interactive
-
----
 
 # 👨‍💻 Auteur
 
