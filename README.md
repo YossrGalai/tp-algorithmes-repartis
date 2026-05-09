@@ -19,19 +19,6 @@ Dans ce projet, nous avons développé une simulation interactive d’algorithme
 
 Le projet inclut une interface développée avec **React** afin de visualiser les événements, les messages échangés et le comportement des processus distribués.
 
----
-
-# 🎯 Objectifs du projet
-
-Ce TP a pour objectifs :
-
-✅ Comprendre les principes des systèmes distribués  
-✅ Étudier les mécanismes d’exclusion mutuelle  
-✅ Simuler des algorithmes d’élection  
-✅ Observer les échanges de messages entre processus  
-✅ Capturer l’état global d’un système distribué  
-✅ Comparer les performances des algorithmes répartis  
-✅ Visualiser les scénarios distribués avec React
 
 ---
 
