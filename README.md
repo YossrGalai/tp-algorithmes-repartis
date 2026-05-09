@@ -122,7 +122,7 @@ npm install
 ## Démarrer l’application React
 
 ```bash
-npm start
+npm run dev
 ```
 
 L’application sera accessible sur :
