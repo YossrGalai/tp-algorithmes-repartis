@@ -1,786 +1,735 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
-import type { CSSProperties } from "react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-const PROCESS_COLORS = ["#818cf8", "#f472b6", "#fb923c"] as const;
-
 type ProcessState = "IDLE" | "WANTING" | "IN_CS" | "FAILED";
-type MessageType = "REQUEST" | "REPLY";
-type MessageStatus = "pending" | "delivered";
-type EventType =
-  | "REQUEST_SENT"
-  | "REPLY_SENT"
-  | "REPLY_RECEIVED"
-  | "ENTERED_CS"
-  | "EXITED_CS"
-  | "DEFERRED"
-  | "FAILED"
-  | "RECOVERED";
+type MsgType = "REQ" | "REP";
+type DiaKind = "arrow" | "cs_start" | "cs_end";
 
 interface Process {
   id: number;
   state: ProcessState;
   clock: number;
-  requestClock: number | null;
-  repliesReceived: number[];
-  deferredReplies: number[];
+  reqClock: number | null;
+  replies: number[];
+  deferred: number[];
   failed: boolean;
 }
 
-interface Message {
+interface Msg {
   id: string;
-  type: MessageType;
+  type: MsgType;
   from: number;
   to: number;
   clock: number;
-  status: MessageStatus;
+  done: boolean;
 }
 
-interface EventItem {
+interface DiagramItem {
   id: string;
-  processId: number;
+  kind: DiaKind;
+  sub?: MsgType;
+  from?: number;
+  to?: number;
+  fc?: number | null;
+  tc?: number | null;
+  pid?: number;
+  clock?: number | null;
+}
+
+interface LogItem {
+  id: string;
+  pid: number;
   type: EventType;
   desc: string;
   clock: number;
+}
+
+interface AppState {
+  procs: Process[];
+  msgs: Msg[];
+  log: LogItem[];
+  dia: DiagramItem[];
   step: number;
 }
 
-interface State {
-  processes: Process[];
-  messages: Message[];
-  events: EventItem[];
-  step: number;
-}
+// ─── Constants ────────────────────────────────────────────────────────────────
+const COLORS = ["#60a5fa", "#f472b6", "#34d399"];
+const NAMES = ["Site 0", "Site 1", "Site 2"];
 
-function makeId() {
-  return Math.random().toString(36).slice(2, 8);
-}
+const STATE_LABEL = { IDLE: "Inactif", WANTING: "En attente", IN_CS: "Section Critique", FAILED: "Panne" };
+const STATE_COLOR = { IDLE: "#64748b", WANTING: "#f59e0b", IN_CS: "#ef4444", FAILED: "#f87171" };
+const EVT_ICON = {
+  REQUEST_SENT: "→", REPLY_SENT: "←", REPLY_RECEIVED: "✓",
+  ENTERED_CS: "🔒", EXITED_CS: "🔓", DEFERRED: "⏳", FAILED: "✕", RECOVERED: "↺",
+} as const;
 
-function tickClock(current: number, received: number | null = null): number {
-  return received !== null ? Math.max(current, received) + 1 : current + 1;
+type EventType = keyof typeof EVT_ICON;
+
+let _id = 0;
+function uid() { return String(++_id); }
+function tick(cur: number, recv: number | null = null): number {
+  return recv !== null ? Math.max(cur, recv) + 1 : cur + 1;
 }
 
 // ─── Initial state ────────────────────────────────────────────────────────────
-function initState(): State {
+function initState(): AppState {
+  _id = 0;
   return {
-    processes: [0, 1, 2].map((id) => ({
-      id,
-      state: "IDLE" as ProcessState,
-      clock: 0,
-      requestClock: null,
-      repliesReceived: [],
-      deferredReplies: [],
-      failed: false,
+    procs: [0,1,2].map((id): Process => ({
+      id, state:"IDLE", clock:0,
+      reqClock:null, replies:[], deferred:[], failed:false,
     })),
-    messages: [],
-    events: [],
+    msgs: [],
+    log:  [],
+    dia:  [],
     step: 0,
   };
 }
 
-// ─── Algorithm operations ──────────────────────────────────────────────────────
-/** @param {any[]} ps */
-function cloneProcesses(ps: Process[]): Process[] {
-  return ps.map((p) => ({
-    ...p,
-    repliesReceived: [...p.repliesReceived],
-    deferredReplies: [...p.deferredReplies],
-  }));
+function cloneProcs(ps: Process[]): Process[] {
+  return ps.map((p) => ({ ...p, replies: [...p.replies], deferred: [...p.deferred] }));
 }
 
-function doRequestCS(state: State, pid: number): State {
-  const processes = cloneProcesses(state.processes);
-  const p = processes[pid];
-  if (p.state !== "IDLE" || p.failed) return state;
+// ─── Pure state transitions ───────────────────────────────────────────────────
+function doRequest(st: AppState, pid: number): AppState {
+  const procs = cloneProcs(st.procs);
+  const p = procs[pid];
+  if (p.state !== "IDLE" || p.failed) return st;
 
-  const nc = tickClock(p.clock);
+  const nc = tick(p.clock);
   p.clock = nc;
   p.state = "WANTING";
-  p.requestClock = nc;
-  p.repliesReceived = [];
+  p.reqClock = nc;
+  p.replies = [];
 
-  const msgs: Message[] = [];
-  processes.forEach((q) => {
-    if (q.id !== pid && !q.failed)
-      msgs.push({ id: makeId(), type: "REQUEST", from: pid, to: q.id, clock: nc, status: "pending" });
-  });
+  const targets = procs.filter((q) => q.id !== pid && !q.failed);
+  const newMsgs: Msg[] = targets.map((q) => ({ id: uid(), type: "REQ", from: pid, to: q.id, clock: nc, done: false }));
+  const newDia: DiagramItem[] = targets.map((q): DiagramItem => ({ id: uid(), kind: "arrow", sub: "REQ", from: pid, to: q.id, fc: nc, tc: null }));
 
-  const evt: EventItem = {
-    id: makeId(), processId: pid, type: "REQUEST_SENT",
-    desc: `P${pid} envoie REQUEST(ts=${nc}) à ${processes.filter(q => q.id !== pid && !q.failed).map(q => "P" + q.id).join(", ")}`,
-    clock: nc, step: state.step,
+  return {
+    ...st,
+    procs,
+    msgs: [...st.msgs, ...newMsgs],
+    log: [...st.log, { id: uid(), pid, type: "REQUEST_SENT", desc: `Site ${pid} envoie REQUEST(ts=${nc})`, clock: nc }],
+    dia: [...st.dia, ...newDia],
+    step: st.step + 1,
   };
-
-  return { ...state, processes, messages: [...state.messages, ...msgs], events: [...state.events, evt], step: state.step + 1 };
 }
 
-function doDeliver(state: State, msgId: string): State {
-  const msg = state.messages.find((m) => m.id === msgId);
-  if (!msg || msg.status === "delivered") return state;
+function doDeliver(st: AppState, msgId: string): AppState {
+  const msg = st.msgs.find((m) => m.id === msgId);
+  if (!msg || msg.done) return st;
 
-  const processes = cloneProcesses(state.processes);
-  const receiver = processes[msg.to];
-  if (receiver.failed) return state;
+  const procs = cloneProcs(st.procs);
+  const r = procs[msg.to];
+  if (r.failed) return st;
 
-  const nc = tickClock(receiver.clock, msg.clock);
-  receiver.clock = nc;
+  const nc = tick(r.clock, msg.clock);
+  r.clock = nc;
 
-  const newMsgs: Message[] = [];
-  const newEvts: EventItem[] = [];
+  // Update matching arrow's tc
+  let updDia = st.dia.map(d => {
+    if (d.kind==="arrow" && d.sub===msg.type && d.from===msg.from
+        && d.to===msg.to && d.fc===msg.clock && d.tc===null) {
+      return { ...d, tc:nc };
+    }
+    return d;
+  });
 
-  if (msg.type === "REQUEST") {
-    const myReqTs = receiver.requestClock;
-    const shouldDefer =
-      receiver.state === "IN_CS" ||
-      (receiver.state === "WANTING" &&
-        myReqTs !== null &&
-        (myReqTs < msg.clock || (myReqTs === msg.clock && receiver.id < msg.from)));
+  const newMsgs: Msg[] = [];
+  const newLog: LogItem[] = [];
+  const newDia: DiagramItem[] = [];
 
-    if (shouldDefer) {
-      receiver.deferredReplies.push(msg.from);
-      newEvts.push({
-        id: makeId(), processId: receiver.id, type: "DEFERRED",
-        desc: `P${receiver.id} diffère REPLY à P${msg.from} (sa priorité est plus haute)`,
-        clock: nc, step: state.step,
-      } as EventItem);
+  if (msg.type === "REQ") {
+    const defer =
+      r.state === "IN_CS" ||
+      (r.state === "WANTING" && r.reqClock !== null &&
+        (r.reqClock < msg.clock || (r.reqClock === msg.clock && r.id < msg.from)));
+
+    if (defer) {
+      r.deferred.push(msg.from);
+      newLog.push({ id:uid(), pid:r.id, type:"DEFERRED",
+        desc:`Site ${r.id} diffère REPLY → Site ${msg.from}`, clock:nc });
     } else {
-      newMsgs.push({ id: makeId(), type: "REPLY", from: receiver.id, to: msg.from, clock: nc, status: "pending" } as Message);
-      newEvts.push({
-        id: makeId(), processId: receiver.id, type: "REPLY_SENT",
-        desc: `P${receiver.id} envoie REPLY à P${msg.from}`,
-        clock: nc, step: state.step,
-      } as EventItem);
+      newMsgs.push({ id:uid(), type:"REP", from:r.id, to:msg.from, clock:nc, done:false });
+      newDia.push({ id:uid(), kind:"arrow", sub:"REP", from:r.id, to:msg.from, fc:nc, tc:null } as DiagramItem);
+      newLog.push({ id:uid(), pid:r.id, type:"REPLY_SENT",
+        desc:`Site ${r.id} envoie REPLY → Site ${msg.from}`, clock:nc });
     }
   } else {
-    // REPLY
-    if (receiver.state === "WANTING") {
-      receiver.repliesReceived.push(msg.from);
-      const active = processes.filter((p) => !p.failed && p.id !== receiver.id);
-      const allReplied = active.every((p) => receiver.repliesReceived.includes(p.id));
-      newEvts.push({
-        id: makeId(), processId: receiver.id, type: "REPLY_RECEIVED",
-        desc: `P${receiver.id} reçoit REPLY de P${msg.from} (${receiver.repliesReceived.length}/${active.length})`,
-        clock: nc, step: state.step,
-      } as EventItem);
-      if (allReplied) {
-        receiver.state = "IN_CS";
-        newEvts.push({
-          id: makeId(), processId: receiver.id, type: "ENTERED_CS",
-          desc: `✓ P${receiver.id} entre en SECTION CRITIQUE — toutes les réponses reçues`,
-          clock: nc, step: state.step,
-        } as EventItem);
+    // REP
+    if (r.state === "WANTING") {
+      r.replies.push(msg.from);
+      const active = procs.filter(p => !p.failed && p.id !== r.id);
+      const allIn  = active.every(p => r.replies.includes(p.id));
+
+      // update tc for this reply arrow
+      updDia = updDia.map(d => {
+        if (d.kind==="arrow" && d.sub==="REP" && d.from===msg.from
+            && d.to===r.id && d.tc===null) {
+          return { ...d, tc:nc };
+        }
+        return d;
+      });
+
+      newLog.push({ id:uid(), pid:r.id, type:"REPLY_RECEIVED",
+        desc:`Site ${r.id} reçoit REPLY de Site ${msg.from} (${r.replies.length}/${active.length})`, clock:nc });
+
+      if (allIn) {
+        r.state = "IN_CS";
+        newLog.push({ id:uid(), pid:r.id, type:"ENTERED_CS",
+          desc:`✓ Site ${r.id} entre en SECTION CRITIQUE`, clock:nc });
+        newDia.push({ id:uid(), kind:"cs_start", pid:r.id, clock:nc });
       }
     }
   }
 
-  const updatedMsgs: Message[] = state.messages.map((m: Message) =>
-    m.id === msgId ? ({ ...m, status: "delivered" } as Message) : m
-  );
+  const updMsgs = st.msgs.map(m => m.id===msgId ? { ...m, done:true } : m);
 
   return {
-    ...state, processes,
-    messages: [...updatedMsgs, ...newMsgs],
-    events: [...state.events, ...newEvts],
-    step: state.step + 1,
+    ...st, procs,
+    msgs: [...updMsgs, ...newMsgs],
+    log:  [...st.log,  ...newLog],
+    dia:  [...updDia,  ...newDia],
+    step: st.step+1,
   };
 }
 
-function doExitCS(state: State, pid: number): State {
-  const processes = cloneProcesses(state.processes);
-  const p = processes[pid];
-  if (p.state !== "IN_CS") return state;
+function doExit(st: AppState, pid: number): AppState {
+  const procs = cloneProcs(st.procs);
+  const p = procs[pid];
+  if (p.state !== "IN_CS") return st;
 
-  const nc = tickClock(p.clock);
+  const nc = tick(p.clock);
   p.clock = nc;
   p.state = "IDLE";
-  p.requestClock = null;
+  p.reqClock = null;
 
-  const deferred = [...p.deferredReplies];
-  p.deferredReplies = [];
+  const def = [...p.deferred];
+  p.deferred = [];
 
-  const newMsgs: Message[] = deferred
-    .filter((tid) => !processes[tid].failed)
-    .map((tid) => ({ id: makeId(), type: "REPLY", from: pid, to: tid, clock: nc, status: "pending" }));
+  const newMsgs: Msg[] = def
+    .filter((tid) => !procs[tid].failed)
+    .map((tid) => ({ id: uid(), type: "REP", from: pid, to: tid, clock: nc, done: false }));
 
-  const newEvts: EventItem[] = [
-    {
-      id: makeId(), processId: pid, type: "EXITED_CS",
-      desc: `P${pid} quitte la SC${deferred.length ? " — envoie les REPLY différées à " + deferred.map((d) => "P" + d).join(", ") : ""}`,
-      clock: nc, step: state.step,
-    },
+  const newDia: DiagramItem[] = [
+    { id: uid(), kind: "cs_end", pid, clock: nc },
+    ...def
+      .filter((tid) => !procs[tid].failed)
+      .map((tid): DiagramItem => ({ id: uid(), kind: "arrow", sub: "REP", from: pid, to: tid, fc: nc, tc: null })),
   ];
 
   return {
-    ...state, processes,
-    messages: [...state.messages, ...newMsgs],
-    events: [...state.events, ...newEvts],
-    step: state.step + 1,
+    ...st,
+    procs,
+    msgs: [...st.msgs, ...newMsgs],
+    log: [...st.log, { id: uid(), pid, type: "EXITED_CS",
+      desc: `Site ${pid} quitte SC${def.length ? " → REPLY différées: " + def.map((d) => "Site " + d).join(", ") : ""}`,
+      clock: nc }],
+    dia: [...st.dia, ...newDia],
+    step: st.step + 1,
   };
 }
 
-function doFail(state: State, pid: number): State {
-  const processes = cloneProcesses(state.processes);
-  processes[pid].failed = true;
-  processes[pid].state = "FAILED";
-  const evt: EventItem = {
-    id: makeId(), processId: pid, type: "FAILED",
-    desc: `⚠ P${pid} tombe en PANNE — les processus en attente de sa réponse peuvent bloquer`,
-    clock: processes[pid].clock, step: state.step,
+function doFail(st: AppState, pid: number): AppState {
+  const procs = cloneProcs(st.procs);
+  procs[pid].failed = true;
+  procs[pid].state = "FAILED";
+  return {
+    ...st,
+    procs,
+    log: [...st.log, { id: uid(), pid, type: "FAILED", desc: `⚠ Site ${pid} PANNE`, clock: procs[pid].clock }],
+    step: st.step + 1,
   };
-  return { ...state, processes, events: [...state.events, evt], step: state.step + 1 };
 }
 
-function doRecover(state: State, pid: number): State {
-  const processes = cloneProcesses(state.processes);
-  const p = processes[pid];
+function doRecover(st: AppState, pid: number): AppState {
+  const procs = cloneProcs(st.procs);
+  const p = procs[pid];
   p.failed = false;
   p.state = "IDLE";
-  p.requestClock = null;
-  p.repliesReceived = [];
-  p.deferredReplies = [];
-  const evt: EventItem = {
-    id: makeId(), processId: pid, type: "RECOVERED",
-    desc: `P${pid} est rétabli`,
-    clock: p.clock, step: state.step,
+  p.reqClock = null;
+  p.replies = [];
+  p.deferred = [];
+
+  const newMsgs: Msg[] = [];
+  const newDia: DiagramItem[] = [];
+  const newLog: LogItem[] = [{ id: uid(), pid, type: "RECOVERED", desc: `Site ${pid} rétabli`, clock: p.clock }];
+
+  const updMsgs = st.msgs.map((m) => {
+    if (m.done || m.to !== pid || m.type !== "REQ") return m;
+    const nc = tick(p.clock, m.clock);
+    p.clock = nc;
+    newMsgs.push({ id: uid(), type: "REP", from: pid, to: m.from, clock: nc, done: false });
+    newDia.push({ id: uid(), kind: "arrow", sub: "REP", from: pid, to: m.from, fc: nc, tc: null });
+    newLog.push({ id: uid(), pid, type: "REPLY_SENT",
+      desc: `Site ${pid} (rétabli) envoie REPLY → Site ${m.from}`, clock: nc });
+    return { ...m, done: true };
+  });
+
+  return {
+    ...st,
+    procs,
+    msgs: [...updMsgs, ...newMsgs],
+    dia: [...st.dia, ...newDia],
+    log: [...st.log, ...newLog],
+    step: st.step + 1,
   };
-  return { ...state, processes, events: [...state.events, evt], step: state.step + 1 };
 }
 
-// ─── Sub-components ────────────────────────────────────────────────────────────
-const STATE_LABEL = { IDLE: "Inactif", WANTING: "En attente", IN_CS: "Section Critique", FAILED: "Panne" };
-const STATE_COLOR = { IDLE: "#64748b", WANTING: "#f59e0b", IN_CS: "#34d399", FAILED: "#f87171" };
-const EVT_ICON = {
-  REQUEST_SENT: "→", REPLY_SENT: "←", REPLY_RECEIVED: "✓",
-  ENTERED_CS: "🔒", EXITED_CS: "🔓", DEFERRED: "⏳", FAILED: "✕", RECOVERED: "↺",
-};
-
-interface NetworkSVGProps {
-  processes: Process[];
-  messages: Message[];
+// ─── Space-Time Diagram ───────────────────────────────────────────────────────
+interface DiagramProps {
+  procs: Process[];
+  dia: DiagramItem[];
 }
 
-function NetworkSVG({ processes, messages }: NetworkSVGProps) {
-  const size = 260;
-  const cx = 130, cy = 130, r = 88;
-  const pos = processes.map((_, i) => ({
-    x: cx + r * Math.cos((2 * Math.PI * i) / 3 - Math.PI / 2),
-    y: cy + r * Math.sin((2 * Math.PI * i) / 3 - Math.PI / 2),
-  }));
-  const pending = messages.filter((m) => m.status === "pending");
+function Diagram({ procs, dia }: DiagramProps) {
+  const W = 700;
+  const H = 270;
+  const LEFT = 68;
+  const RIGHT = W - 24;
+  const LW = RIGHT - LEFT;
+  const siteY = [H - 38, H / 2, 36];
+
+  const clocks = new Set<number>([0]);
+  procs.forEach((p) => clocks.add(p.clock));
+  dia.forEach((d) => {
+    if (d.fc != null) clocks.add(d.fc);
+    if (d.tc != null) clocks.add(d.tc);
+    if (d.clock != null) clocks.add(d.clock);
+  });
+  const maxC = Math.max(8, ...Array.from(clocks));
+  const xOf = (c: number) => LEFT + (c / maxC) * LW;
+
+  const isArrowDone = (d: DiagramItem): d is DiagramItem & { kind: "arrow"; sub: MsgType; from: number; to: number; fc: number; tc: number } =>
+    d.kind === "arrow" && d.fc != null && d.tc != null && typeof d.from === "number" && typeof d.to === "number" && (d.sub === "REQ" || d.sub === "REP");
+  const isArrowInFlight = (d: DiagramItem): d is DiagramItem & { kind: "arrow"; sub: MsgType; from: number; to: number; fc: number; tc: null } =>
+    d.kind === "arrow" && d.fc != null && d.tc === null && typeof d.from === "number" && typeof d.to === "number" && (d.sub === "REQ" || d.sub === "REP");
+
+  // Build CS segments from cs_start / cs_end markers
+  const csSegs: Array<{ pid: number; s: number; e: number | null; done: boolean }> = [];
+  const starts: Record<number, number | null> = {};
+  dia.forEach((d) => {
+    if (d.kind === "cs_start" && typeof d.pid === "number") starts[d.pid] = d.clock ?? null;
+    if (d.kind === "cs_end" && typeof d.pid === "number" && starts[d.pid] != null) {
+      csSegs.push({ pid: d.pid, s: starts[d.pid] as number, e: d.clock ?? null, done: true });
+      delete starts[d.pid];
+    }
+  });
+  procs.forEach((p) => {
+    if (p.state === "IN_CS" && starts[p.id] != null) {
+      csSegs.push({ pid: p.id, s: starts[p.id] as number, e: null, done: false });
+    }
+  });
+
+  const arrows   = dia.filter(isArrowDone);
+  const inflight = dia.filter(isArrowInFlight);
+
+  // Dot clocks per process
+  const dotMap: Record<number, Set<number>> = { 0: new Set<number>(), 1: new Set<number>(), 2: new Set<number>() };
+  dia.forEach((d) => {
+    if (d.kind === "arrow") {
+      if (d.fc != null && typeof d.from === "number") dotMap[d.from].add(d.fc);
+      if (d.tc != null && typeof d.to === "number") dotMap[d.to].add(d.tc);
+    }
+    if ((d.kind === "cs_start" || d.kind === "cs_end") && typeof d.pid === "number" && d.clock != null)
+      dotMap[d.pid].add(d.clock);
+  });
+  procs.forEach(p => { if (p.clock>0) dotMap[p.id].add(p.clock); });
 
   return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ display: "block" }}>
+    <svg width="100%" viewBox={`0 0 ${W} ${H}`}
+      style={{ display:"block", fontFamily:"monospace", overflow:"visible" }}>
       <defs>
-        <marker id="ar" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto">
-          <path d="M0,0 L0,7 L7,3.5 z" fill="#818cf8" />
-        </marker>
-        <marker id="ar2" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto">
-          <path d="M0,0 L0,7 L7,3.5 z" fill="#34d399" />
-        </marker>
+        {[["aR","#60a5fa"],["aA","#34d399"],["aG","#334155"]].map(([id,c])=>(
+          <marker key={id} id={id} markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+            <path d="M0,0 L0,7 L7,3.5 z" fill={c}/>
+          </marker>
+        ))}
       </defs>
-      {/* Base edges */}
-      {[0, 1, 2].map((i) =>
-        [0, 1, 2].filter((j) => j > i).map((j) => (
-          <line key={`${i}-${j}`}
-            x1={pos[i].x} y1={pos[i].y} x2={pos[j].x} y2={pos[j].y}
-            stroke="#1e293b" strokeWidth={1.5} strokeDasharray="4 3"
-          />
-        ))
-      )}
-      {/* Pending messages */}
-      {pending.map((msg) => {
-        const f = pos[msg.from], t = pos[msg.to];
-        const dx = t.x - f.x, dy = t.y - f.y;
-        const len = Math.sqrt(dx * dx + dy * dy);
-        const nx = dx / len, ny = dy / len, off = 20;
-        const isReq = msg.type === "REQUEST";
+
+      {/* vertical grid */}
+      {Array.from({length:maxC+1},(_,c)=>(
+        <line key={c} x1={xOf(c)} y1={28} x2={xOf(c)} y2={H-12}
+          stroke="#e2e8f0" strokeWidth={0.5} strokeDasharray="2 4" opacity={0.35}/>
+      ))}
+
+      {/* timelines */}
+      {[0,1,2].map(pid => {
+        const y=siteY[pid], col=procs[pid].failed?"#f87171":COLORS[pid];
         return (
-          <g key={msg.id}>
-            <line
-              x1={f.x + nx * off} y1={f.y + ny * off}
-              x2={t.x - nx * (off + 5)} y2={t.y - ny * (off + 5)}
-              stroke={isReq ? "#818cf8" : "#34d399"}
-              strokeWidth={2} strokeDasharray="5 3"
-              markerEnd={isReq ? "url(#ar)" : "url(#ar2)"}
-            >
-              <animate attributeName="stroke-dashoffset" from="16" to="0" dur="0.7s" repeatCount="indefinite" />
-            </line>
-            <text
-              x={(f.x + nx * off + t.x - nx * (off + 5)) / 2}
-              y={(f.y + ny * off + t.y - ny * (off + 5)) / 2 - 6}
-              fontSize={8} fill={isReq ? "#818cf8" : "#34d399"}
-              textAnchor="middle" fontWeight="700" fontFamily="monospace"
-            >
-              {msg.type}
-            </text>
+          <g key={pid}>
+            <text x={2} y={y+4} fontSize={9} fill={col} fontWeight="700">{NAMES[pid]}</text>
+            <line x1={LEFT} y1={y} x2={RIGHT} y2={y} stroke={col} strokeWidth={1.5} opacity={0.55}/>
+            <polygon points={`${RIGHT},${y-4} ${RIGHT+9},${y} ${RIGHT},${y+4}`} fill={col} opacity={0.55}/>
           </g>
         );
       })}
-      {/* Process nodes */}
-      {processes.map((p, i) => {
-        const { x, y } = pos[i];
-        const color = p.failed ? "#f87171" : PROCESS_COLORS[i];
-        const isCS = p.state === "IN_CS";
+
+      {/* CS bars */}
+      {csSegs.map((seg,i) => {
+        const y=siteY[seg.pid], x1=xOf(seg.s);
+        const x2 = seg.done && seg.e != null ? xOf(seg.e) : x1+36;
+        const w  = Math.max(x2-x1, 14);
         return (
-          <g key={p.id}>
-            {isCS && (
-              <circle cx={x} cy={y} r={24} fill={`${color}22`} stroke={color} strokeWidth={1.5} strokeDasharray="3 2">
-                <animate attributeName="r" values="20;28;20" dur="1.8s" repeatCount="indefinite" />
-                <animate attributeName="opacity" values="0.7;0;0.7" dur="1.8s" repeatCount="indefinite" />
-              </circle>
-            )}
-            <circle cx={x} cy={y} r={18} fill="#0f172a" stroke={color} strokeWidth={2.5} />
-            <text x={x} y={y + 1} textAnchor="middle" dominantBaseline="middle"
-              fontSize={11} fontWeight="800" fill={color} fontFamily="monospace">
-              {p.failed ? "✕" : `P${i}`}
-            </text>
-            <text x={x} y={y + 30} textAnchor="middle" fontSize={8} fill={STATE_COLOR[p.state]} fontWeight="600">
-              {STATE_LABEL[p.state].toUpperCase()}
-            </text>
-            <text x={x} y={y + 40} textAnchor="middle" fontSize={7} fill="#475569" fontFamily="monospace">
-              clk:{p.clock}
-            </text>
+          <g key={i}>
+            <rect x={x1} y={y-6} width={w} height={12} fill="#ef4444" rx={2} opacity={seg.done?0.92:0.7}>
+              {!seg.done && <animate attributeName="opacity" values="0.4;0.88;0.4" dur="1s" repeatCount="indefinite"/>}
+            </rect>
+            {!seg.done && <text x={x1+w+3} y={y+4} fontSize={8} fill="#ef4444" fontWeight="800">SC</text>}
           </g>
         );
       })}
+
+      {/* in-flight arrows */}
+      {inflight.map(d => {
+        const fy=siteY[d.from], ty=siteY[d.to], fx=xOf(d.fc);
+        const tx=fx+(RIGHT-fx)*0.55;
+        return (
+          <line key={d.id} x1={fx} y1={fy} x2={tx} y2={ty}
+            stroke="#64748b" strokeWidth={1} strokeDasharray="5 3"
+            markerEnd="url(#aG)" opacity={0.45}/>
+        );
+      })}
+
+      {/* completed arrows */}
+      {arrows.map(d => {
+        const fy=siteY[d.from], ty=siteY[d.to];
+        const fx=xOf(d.fc), tx=xOf(d.tc);
+        const isReq=d.sub==="REQ", col=isReq?"#60a5fa":"#34d399";
+        const mx=(fx+tx)/2, my=(fy+ty)/2;
+        const dx=tx-fx, dy2=ty-fy, len=Math.sqrt(dx*dx+dy2*dy2)||1;
+        const nx=-dy2/len, ny=dx/len, off=11;
+        const lbl=isReq?`(R,${d.fc})`:`(A,${d.fc})`;
+        return (
+          <g key={d.id}>
+            <line x1={fx} y1={fy} x2={tx} y2={ty}
+              stroke={col} strokeWidth={1.6}
+              markerEnd={isReq?"url(#aR)":"url(#aA)"}/>
+            <text x={mx+nx*off} y={my+ny*off+4}
+              fontSize={8} fill={col} textAnchor="middle" fontWeight="700">{lbl}</text>
+          </g>
+        );
+      })}
+
+      {/* clock dots */}
+      {[0,1,2].map(pid => {
+        const y=siteY[pid], col=procs[pid].failed?"#f87171":COLORS[pid];
+        return [...dotMap[pid]].map(clk => {
+          const x=xOf(clk);
+          return (
+            <g key={`${pid}-${clk}`}>
+              <circle cx={x} cy={y} r={9} fill="#ffffff" stroke={col} strokeWidth={1.5}/>
+              <text x={x} y={y+4} fontSize={8} fill={col} textAnchor="middle" fontWeight="700">{clk}</text>
+            </g>
+          );
+        });
+      })}
+
+      {/* legend */}
+      <g transform={`translate(${LEFT},${H-6})`} fontSize={7}>
+        <line x1={0} y1={0} x2={22} y2={0} stroke="#60a5fa" strokeWidth={1.5} markerEnd="url(#aR)"/>
+        <text x={26} y={4} fill="#60a5fa">REQUEST (R,ts)</text>
+        <line x1={100} y1={0} x2={122} y2={0} stroke="#34d399" strokeWidth={1.5} markerEnd="url(#aA)"/>
+        <text x={126} y={4} fill="#34d399">REPLY (A,ts)</text>
+        <rect x={200} y={-5} width={18} height={10} fill="#ef4444" rx={1}/>
+        <text x={222} y={4} fill="#ef4444">Section Critique</text>
+      </g>
     </svg>
   );
 }
 
-interface ProcessCardProps {
-  process: Process;
-  totalNeeded: number;
+// ─── Process Card ─────────────────────────────────────────────────────────────
+interface ProcCardProps {
+  proc: Process;
+  needed: number;
   onRequest: () => void;
   onExit: () => void;
   onFail: () => void;
   onRecover: () => void;
 }
 
-function ProcessCard({ process, onRequest, onExit, onFail, onRecover, totalNeeded }: ProcessCardProps) {
-  const color = process.failed ? "#f87171" : PROCESS_COLORS[process.id];
-  const stateColor = STATE_COLOR[process.state];
-  const isCS = process.state === "IN_CS";
+function ProcCard({ proc, needed, onRequest, onExit, onFail, onRecover }: ProcCardProps) {
+  const col = proc.failed ? "#f87171" : COLORS[proc.id];
+  const sCol = STATE_COLOR[proc.state];
 
   return (
     <div style={{
-      background: "#ffffff",
-      border: `1px solid #e2e8f0`,
-      borderLeft: `4px solid ${stateColor}`,
-      borderRadius: 18,
-      padding: "18px 20px",
-      width: 220,
-      boxSizing: "border-box",
-      transition: "all 0.35s ease",
-      opacity: process.failed ? 0.75 : 1,
-      position: "relative",
-      overflow: "hidden",
-      boxShadow: "0 12px 24px rgba(15, 23, 42, 0.06)",
+      background:"#ffffff", border:`1.5px solid ${col}33`,
+      borderLeft:`3px solid ${col}`, borderRadius:12,
+      padding:"14px 16px", width:165, boxSizing:"border-box",
+      boxShadow: proc.state==="IN_CS" ? `0 0 20px ${col}22` : "none",
     }}>
-      {isCS && (
+      {/* header */}
+      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
         <div style={{
-          position: "absolute", inset: 0, background: "#34d39908",
-          borderRadius: 12, pointerEvents: "none",
-          animation: "csGlow 2s ease-in-out infinite",
-        }} />
-      )}
-
-      {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-        <div style={{
-          width: 36, height: 36, borderRadius: "50%",
-          background: `${color}22`, border: `2px solid ${color}`,
-          display: "flex", alignItems: "center", justifyContent: "center",
-          fontSize: 14, fontWeight: 800, color, fontFamily: "monospace",
+          width:30, height:30, borderRadius:"50%",
+          background:`${col}1a`, border:`1.5px solid ${col}`,
+          display:"flex", alignItems:"center", justifyContent:"center",
+          fontSize:11, fontWeight:800, color:col, fontFamily:"monospace",
         }}>
-          {process.failed ? "✕" : `P${process.id}`}
+          {proc.failed?"✕":`P${proc.id}`}
         </div>
         <div>
-          <div style={{ color: "#0f172a", fontWeight: 700, fontSize: 13 }}>Processus {process.id}</div>
-          <div style={{ fontSize: 10, fontWeight: 700, color: stateColor, letterSpacing: 1, textTransform: "uppercase" }}>
-            {STATE_LABEL[process.state]}
-          </div>
+          <div style={{ color:"#0f172a", fontWeight:700, fontSize:12 }}>{NAMES[proc.id]}</div>
+          <div style={{ fontSize:9, color:sCol, fontWeight:700 }}>{STATE_LABEL[proc.state]}</div>
         </div>
       </div>
 
-      {/* Stats */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-        <div style={{ flex: 1, textAlign: "center", background: "#f8fafc", borderRadius: 8, padding: "8px 4px", border: "1px solid #e2e8f0" }}>
-          <div style={{ fontSize: 9, color: "#64748b", marginBottom: 2 }}>HORLOGE</div>
-          <div style={{ fontSize: 20, fontWeight: 800, color: "#0f172a", fontFamily: "monospace" }}>{process.clock}</div>
+      {/* clock */}
+      <div style={{ display:"flex", gap:6, marginBottom:8 }}>
+        <div style={{ flex:1, textAlign:"center", background:"#f8fafc", borderRadius:6, padding:"5px 2px", border:"1px solid #e2e8f0" }}>
+          <div style={{ fontSize:8, color:"#64748b" }}>HORLOGE</div>
+          <div style={{ fontSize:20, fontWeight:800, color:"#0f172a", fontFamily:"monospace" }}>{proc.clock}</div>
         </div>
-        {process.requestClock !== null && (
-          <div style={{ flex: 1, textAlign: "center", background: "#f8fafc", borderRadius: 8, padding: "6px 4px", border: "1px solid #e2e8f0" }}>
-            <div style={{ fontSize: 9, color: "#64748b", marginBottom: 2 }}>REQ ts</div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: "#f59e0b", fontFamily: "monospace" }}>{process.requestClock}</div>
+        {proc.state==="WANTING" && (
+          <div style={{ flex:1, textAlign:"center", background:"#f8fafc", borderRadius:6, padding:"5px 2px", border:"1px solid #e2e8f0" }}>
+            <div style={{ fontSize:8, color:"#64748b" }}>REPLY</div>
+            <div style={{ fontSize:20, fontWeight:800, color:"#34d399", fontFamily:"monospace" }}>
+              {proc.replies.length}/{needed}
+            </div>
           </div>
         )}
-        <div style={{ flex: 1, textAlign: "center", background: "#f8fafc", borderRadius: 8, padding: "6px 4px", border: "1px solid #e2e8f0" }}>
-          <div style={{ fontSize: 9, color: "#64748b", marginBottom: 2 }}>REPLY</div>
-          <div style={{ fontSize: 20, fontWeight: 800, color: "#34d399", fontFamily: "monospace" }}>
-            {process.repliesReceived.length}/{totalNeeded}
-          </div>
-        </div>
       </div>
 
-      {/* Progress bar */}
-      {process.state === "WANTING" && totalNeeded > 0 && (
-        <div style={{ background: "#1e293b", borderRadius: 4, height: 5, marginBottom: 10, overflow: "hidden" }}>
+      {/* progress */}
+      {proc.state==="WANTING" && needed>0 && (
+        <div style={{ background:"#e2e8f0", borderRadius:3, height:4, marginBottom:8, overflow:"hidden" }}>
           <div style={{
-            width: `${(process.repliesReceived.length / totalNeeded) * 100}%`,
-            height: "100%",
-            background: `linear-gradient(90deg, #f59e0b, #34d399)`,
-            borderRadius: 4, transition: "width 0.4s",
-          }} />
+            width:`${(proc.replies.length/needed)*100}%`,
+            height:"100%", background:"linear-gradient(90deg,#f59e0b,#34d399)",
+            borderRadius:3, transition:"width 0.3s",
+          }}/>
         </div>
       )}
 
-      {/* Deferred */}
-      {process.deferredReplies.length > 0 && (
-        <div style={{ fontSize: 10, color: "#92400e", background: "#fef3c7", borderRadius: 6, padding: "4px 8px", marginBottom: 10, border: "1px solid #fde68a" }}>
-          ⏳ Différées: {process.deferredReplies.map((id) => `P${id}`).join(", ")}
+      {/* deferred */}
+      {proc.deferred.length>0 && (
+        <div style={{ fontSize:9, color:"#92400e", background:"#fef3c7", borderRadius:5,
+          padding:"3px 6px", marginBottom:8, border:"1px solid #fde68a" }}>
+          ⏳ Différées: {proc.deferred.map(id=>`P${id}`).join(", ")}
         </div>
       )}
 
-      {/* Buttons */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-        {!process.failed && process.state === "IDLE" && (
-          <button onClick={onRequest} style={btnSt(color)}>📤 Demander SC</button>
+      {/* BUTTONS — plain flow, no absolute overlay, no overflow:hidden on parent */}
+      <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
+        {!proc.failed && proc.state==="IDLE" && (
+          <button onClick={onRequest} style={btnStyle(col)}>📤 Demander SC</button>
         )}
-        {!process.failed && process.state === "IN_CS" && (
-          <button onClick={onExit} style={btnSt("#34d399")}>🔓 Quitter SC</button>
+        {!proc.failed && proc.state==="IN_CS" && (
+          <button onClick={onExit} style={btnStyle("#ef4444")}>🔓 Quitter SC</button>
         )}
-        {!process.failed ? (
-          <button onClick={onFail} style={btnSt("#f87171", true)}>💥 Simuler panne</button>
-        ) : (
-          <button onClick={onRecover} style={btnSt("#34d399")}>↺ Rétablir</button>
+        {!proc.failed && proc.state==="WANTING" && (
+          <div style={{ fontSize:9, color:"#f59e0b", padding:"3px 0" }}>⏳ En attente…</div>
         )}
+        {!proc.failed
+          ? <button onClick={onFail}    style={btnStyle("#f87171",true)}>💥 Panne</button>
+          : <button onClick={onRecover} style={btnStyle("#34d399")}     >↺ Rétablir</button>
+        }
       </div>
     </div>
   );
 }
 
-const btnSt = (color: string, outline = false): CSSProperties => ({
-  background: outline ? "transparent" : `${color}12`,
-  border: `1px solid ${color}33`,
-  borderRadius: 10,
-  color,
-  padding: "8px 12px",
-  fontSize: 12,
-  cursor: "pointer",
-  width: "100%",
-  textAlign: "left",
-  fontFamily: "inherit",
-  transition: "all 0.15s",
-});
+function btnStyle(color: string, outline = false): React.CSSProperties {
+  return {
+    background: outline ? "transparent" : `${color}12`,
+    border: `1px solid ${color}33`, borderRadius: 7,
+    color, padding: "6px 10px", fontSize: 10,
+    cursor: "pointer", width: "100%", textAlign: "left",
+    fontFamily: "inherit", fontWeight: 700,
+  };
+}
 
-interface MessageBubbleProps {
-  msg: Message;
+interface MsgRowProps {
+  msg: Msg;
   onDeliver: () => void;
 }
 
-function MessageBubble({ msg, onDeliver }: MessageBubbleProps) {
-  const isReq = msg.type === "REQUEST";
+// ─── Message row ──────────────────────────────────────────────────────────────
+function MsgRow({ msg, onDeliver }: MsgRowProps) {
+  const isReq = msg.type==="REQ";
   return (
     <div onClick={onDeliver} style={{
-      display: "flex", alignItems: "center", gap: 8,
-      background: isReq ? "#f8fafc" : "#f0f9ff",
-      border: `1px solid ${isReq ? "#fde68a" : "#bfdbfe"}`,
-      borderRadius: 10, padding: "10px 12px", cursor: "pointer",
-      marginBottom: 8, fontSize: 12,
-      color: "#0f172a",
-      transition: "all 0.15s",
+      display:"flex", alignItems:"center", gap:8,
+      background:"#ffffff", border:`1px solid ${isReq?"#bfdbfe":"#bfdbfe"}`,
+      borderRadius:8, padding:"7px 10px", cursor:"pointer",
+      marginBottom:6, fontSize:10, color:"#0f172a",
     }}>
-      <span style={{ fontSize: 14 }}>{isReq ? "📤" : "✉️"}</span>
-      <span style={{ flex: 1, fontFamily: "monospace", fontWeight: 700 }}>{msg.type}</span>
-      <span style={{ color: "#64748b" }}>P{msg.from} → P{msg.to}</span>
-      <span style={{ color: "#475569", fontSize: 10 }}>ts:{msg.clock}</span>
+      <span style={{ color:isReq?"#60a5fa":"#34d399", fontWeight:800, minWidth:36, fontFamily:"monospace" }}>
+        {isReq?"REQ":"REP"}
+      </span>
+      <span style={{ color:"#64748b" }}>{NAMES[msg.from]} → {NAMES[msg.to]}</span>
+      <span style={{ color:"#475569", fontFamily:"monospace" }}>ts:{msg.clock}</span>
       <span style={{
-        background: isReq ? "#f59e0b" : "#34d399",
-        color: "#000", borderRadius: 4, padding: "2px 7px",
-        fontSize: 10, fontWeight: 800,
+        marginLeft:"auto", background:isReq?"#dbeafe":"#dbeafe",
+        color:isReq?"#60a5fa":"#34d399", borderRadius:4,
+        padding:"2px 8px", fontSize:9, fontWeight:800,
       }}>DÉLIVRER</span>
     </div>
   );
 }
 
-// ─── Main App ──────────────────────────────────────────────────────────────────
+// ─── Main App ─────────────────────────────────────────────────────────────────
 export default function App() {
-  const [state, setState] = useState<State>(initState);
-  const evtEndRef = useRef<HTMLDivElement | null>(null);
-  const [autoPlay, setAutoPlay] = useState(false);
+  const [st, setSt] = useState<AppState>(initState);
+  const [auto, setAuto] = useState(false);
   const autoRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const logEnd = useRef<HTMLDivElement | null>(null);
+
+  const pending = st.msgs.filter((m) => !m.done);
+  const active  = st.procs.filter(p => !p.failed);
+
+  useEffect(() => { logEnd.current?.scrollIntoView({ behavior:"smooth" }); }, [st.log.length]);
 
   useEffect(() => {
-    evtEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [state.events.length]);
-
-  const pending = state.messages.filter((m) => m.status === "pending");
-  const active = state.processes.filter((p) => !p.failed);
-
-  // Auto-play: deliver oldest pending message every 1.2s
-  useEffect(() => {
-    if (autoPlay) {
+    if (auto) {
       autoRef.current = setInterval(() => {
-        setState((s) => {
-          const p = s.messages.find((m) => m.status === "pending");
-          return p ? doDeliver(s, p.id) : s;
+        setSt((s) => {
+          const m = s.msgs.find((m) => !m.done);
+          return m ? doDeliver(s, m.id) : s;
         });
-      }, 1200);
+      }, 1100);
     } else {
       if (autoRef.current !== null) clearInterval(autoRef.current);
     }
     return () => {
       if (autoRef.current !== null) clearInterval(autoRef.current);
     };
-  }, [autoPlay]);
+  }, [auto]);
 
-  const handle = useCallback(
-    <T extends unknown[]>(fn: (state: State, ...args: T) => State, ...args: T) =>
-      setState((s) => fn(s, ...args)),
-    []
-  );
+  const run = useCallback(<T extends unknown[]>(fn: (state: AppState, ...args: T) => AppState, ...args: T) => setSt((s) => fn(s, ...args)), []);
 
   return (
     <div style={{
-      minHeight: "100vh",
-      background: "#f8fafc",
-      color: "#0f172a",
-      fontFamily: "'Segoe UI', system-ui, -apple-system, sans-serif",
-      padding: "24px 20px 48px",
+      minHeight:"100vh", background:"#f8fafc", color:"#0f172a",
+      fontFamily:"'Segoe UI',system-ui,sans-serif", padding:"20px 14px 56px",
     }}>
-      <style>{`
-        @keyframes csGlow { 0%,100%{opacity:1} 50%{opacity:0.3} }
-        button:hover { filter: brightness(1.08); }
-        ::-webkit-scrollbar { width: 8px; }
-        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 6px; }
-      `}</style>
-
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <Link to="/" style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: 6,
-          padding: "8px 12px",
-          borderRadius: 12,
-          background: "#ffffff",
-          border: "1px solid #e2e8f0",
-          color: "#0f172a",
-          fontSize: 12,
-          fontWeight: 700,
-          textDecoration: "none",
-          boxShadow: "0 8px 18px rgba(15, 23, 42, 0.06)",
-        }}>
-          ← Retour au menu
-        </Link>
-      </div>
+      <style>{`button:hover{filter:brightness(1.18)} ::-webkit-scrollbar{width:5px}
+        ::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:4px}`}</style>
 
       {/* Title */}
-      <div style={{ textAlign: "center", marginBottom: 28 }}>
-        <div style={{ fontSize: 10, color: "#64748b", letterSpacing: 4, textTransform: "uppercase", marginBottom: 6 }}>
+      <div style={{ textAlign:"center", marginBottom:22 }}>
+        <div style={{ fontSize:9, color:"#64748b", letterSpacing:4, textTransform:"uppercase", marginBottom:4 }}>
           Exclusion Mutuelle Distribuée
         </div>
-        <h1 style={{
-          fontSize: 26, fontWeight: 900, margin: 0,
-          background: "linear-gradient(120deg, #818cf8, #f472b6, #fb923c)",
-          WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
-        }}>
-          Ricart – Agrawala
+        <h1 style={{ fontSize:21, fontWeight:900, margin:0,
+          background:"linear-gradient(90deg,#60a5fa,#f472b6,#34d399)",
+          WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent" }}>
+          Ricart–Agrawala · Diagramme Espace-Temps
         </h1>
-        <p style={{ color: "#475569", fontSize: 12, margin: "6px 0 0" }}>
-          3 processus · Horloges de Lamport · Scénario interactif
+        <p style={{ color:"#475569", fontSize:11, margin:"4px 0 0" }}>
+          3 sites · Horloges de Lamport · Simulation interactive
         </p>
       </div>
 
-      {/* Legend */}
-      <div style={{ display: "flex", justifyContent: "center", gap: 16, flexWrap: "wrap", marginBottom: 24 }}>
-        {[
-          ["Inactif", "#64748b"], ["En attente", "#f59e0b"], ["Section Critique", "#34d399"],
-          ["En panne", "#f87171"], ["REQUEST", "#818cf8"], ["REPLY", "#34d399"],
-        ].map(([l, c]) => (
-          <div key={l} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
-            <div style={{ width: 11, height: 11, borderRadius: 9999, background: c }} />
-            <span style={{ color: "#475569", fontWeight: 600 }}>{l}</span>
-          </div>
-        ))}
-      </div>
-
-      {/* Main row */}
-      <div style={{ display: "flex", gap: 16, alignItems: "flex-start", justifyContent: "center", flexWrap: "wrap" }}>
-        {/* Process cards */}
-        {state.processes.map((p) => (
-          <ProcessCard
-            key={p.id}
-            process={p}
-            totalNeeded={Math.max(0, active.filter((a) => a.id !== p.id).length)}
-            onRequest={() => handle(doRequestCS, p.id)}
-            onExit={() => handle(doExitCS, p.id)}
-            onFail={() => handle(doFail, p.id)}
-            onRecover={() => handle(doRecover, p.id)}
+      {/* Cards */}
+      <div style={{ display:"flex", gap:10, justifyContent:"center", flexWrap:"wrap", marginBottom:18 }}>
+        {st.procs.map(p => (
+          <ProcCard key={p.id} proc={p}
+            needed={Math.max(0, active.filter(a => a.id!==p.id).length)}
+            onRequest={() => run(doRequest, p.id)}
+            onExit    ={() => run(doExit,   p.id)}
+            onFail    ={() => run(doFail,   p.id)}
+            onRecover ={() => run(doRecover,p.id)}
           />
         ))}
-
-        {/* Network graph */}
-        <div style={{
-          background: "#ffffff", border: "1px solid #e2e8f0",
-          borderRadius: 14, padding: "18px 20px",
-          display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
-          boxShadow: "0 12px 24px rgba(15, 23, 42, 0.06)",
-        }}>
-          <div style={{ fontSize: 9, color: "#475569", letterSpacing: 2, textTransform: "uppercase" }}>
-            Réseau distribué
-          </div>
-          <NetworkSVG processes={state.processes} messages={state.messages} />
-          <div style={{ fontSize: 10, color: "#475569" }}>
-            En transit: <span style={{ color: "#818cf8", fontWeight: 700 }}>{pending.length}</span> messages
-          </div>
-        </div>
       </div>
 
-      {/* Message queue */}
+      {/* Diagram */}
+      <div style={{ background:"#ffffff", border:"1px solid #e2e8f0",
+        borderRadius:14, padding:"14px 10px 8px",
+        maxWidth:740, margin:"0 auto 14px" }}>
+        <div style={{ fontSize:9, color:"#60a5fa", letterSpacing:3,
+          textTransform:"uppercase", marginBottom:10 }}>
+          📊 Diagramme Espace-Temps
+        </div>
+        <Diagram procs={st.procs} dia={st.dia}/>
+      </div>
+
+      {/* Pending */}
       {pending.length > 0 && (
-        <div style={{
-          background: "#ffffff", border: "1px solid #e2e8f0",
-          borderRadius: 14, padding: 18,
-          maxWidth: 680, margin: "18px auto 0",
-          boxShadow: "0 12px 24px rgba(15, 23, 42, 0.06)",
-        }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-            <div style={{ fontSize: 10, color: "#818cf8", letterSpacing: 2, textTransform: "uppercase" }}>
+        <div style={{ background:"#ffffff", border:"1px solid #e2e8f0",
+          borderRadius:14, padding:14, maxWidth:740, margin:"0 auto 14px" }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+            <div style={{ fontSize:9, color:"#f472b6", letterSpacing:2, textTransform:"uppercase" }}>
               📨 Messages en Transit ({pending.length})
             </div>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <span style={{ fontSize: 11, color: "#64748b" }}>Auto-délivraison</span>
-              <div
-                onClick={() => setAutoPlay((v) => !v)}
-                style={{
-                  width: 38, height: 20, borderRadius: 10,
-                  background: autoPlay ? "#818cf8" : "#e2e8f0",
-                  cursor: "pointer", position: "relative", transition: "background 0.2s",
-                }}
-              >
+            <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+              <span style={{ fontSize:10, color:"#334155" }}>Auto-livraison</span>
+              <div onClick={()=>setAuto(v=>!v)} style={{
+                width:34, height:18, borderRadius:9,
+                background:auto?"#60a5fa":"#e2e8f0",
+                cursor:"pointer", position:"relative", transition:"background 0.2s",
+              }}>
                 <div style={{
-                  position: "absolute", top: 2, left: autoPlay ? 20 : 2,
-                  width: 16, height: 16, borderRadius: "50%",
-                  background: "#fff", transition: "left 0.2s",
-                }} />
+                  position:"absolute", top:2, left:auto?18:2,
+                  width:14, height:14, borderRadius:"50%",
+                  background:"#fff", transition:"left 0.2s",
+                }}/>
               </div>
             </div>
           </div>
-          <div style={{ fontSize: 11, color: "#475569", marginBottom: 8 }}>
-            Cliquez sur un message pour le délivrer manuellement :
-          </div>
-          {pending.map((m) => (
-            <MessageBubble key={m.id} msg={m} onDeliver={() => handle(doDeliver, m.id)} />
+          {pending.map(m => (
+            <MsgRow key={m.id} msg={m} onDeliver={()=>run(doDeliver,m.id)}/>
           ))}
         </div>
       )}
 
-      {/* Event log */}
-      <div style={{
-        background: "#ffffff", border: "1px solid #e2e8f0",
-        borderRadius: 14, padding: 18,
-        maxWidth: 680, margin: "18px auto 0",
-        boxShadow: "0 12px 24px rgba(15, 23, 42, 0.06)",
-      }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <div style={{ fontSize: 10, color: "#818cf8", letterSpacing: 2, textTransform: "uppercase" }}>
-            📋 Journal des Événements
+      {/* Log */}
+      <div style={{ background:"#ffffff", border:"1px solid #e2e8f0",
+        borderRadius:14, padding:14, maxWidth:740, margin:"0 auto" }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+          <div style={{ fontSize:9, color:"#64748b", letterSpacing:2, textTransform:"uppercase" }}>
+            📋 Journal (Étape {st.step})
           </div>
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <span style={{ fontSize: 11, color: "#475569" }}>
-              Étape <span style={{ color: "#0f172a", fontWeight: 700 }}>{state.step}</span>
-            </span>
-            <button
-              onClick={() => { setState(initState()); setAutoPlay(false); }}
-              style={{ ...btnSt("#f87171", true), width: "auto", padding: "4px 12px" }}
-            >
-              🔄 Reset
-            </button>
-          </div>
+          <button onClick={()=>{ setSt(initState()); setAuto(false); }}
+            style={{ ...btnStyle("#f87171",true), width:"auto", padding:"4px 12px", fontSize:10 }}>
+            🔄 Reset
+          </button>
         </div>
-
-        {state.events.length === 0 ? (
-          <div style={{ textAlign: "center", padding: "28px 0", color: "#475569", fontSize: 12 }}>
-            Aucun événement — Cliquez sur "Demander SC" pour démarrer la simulation
+        {st.log.length===0 ? (
+          <div style={{ textAlign:"center", padding:"20px 0", color:"#64748b", fontSize:11 }}>
+            Aucun événement — cliquez "Demander SC" pour démarrer
           </div>
         ) : (
-          <div style={{ maxHeight: 300, overflowY: "auto", display: "flex", flexDirection: "column", gap: 3 }}>
-            {state.events.map((evt, idx) => (
-              <div key={evt.id} style={{
-                display: "flex", alignItems: "flex-start", gap: 8,
-                padding: "7px 10px", borderRadius: 7, fontSize: 11,
-                background: idx === state.events.length - 1 ? `${PROCESS_COLORS[evt.processId]}12` : "transparent",
-                borderLeft: `2.5px solid ${PROCESS_COLORS[evt.processId] || "#475569"}`,
+          <div style={{ maxHeight:200, overflowY:"auto", display:"flex", flexDirection:"column", gap:2 }}>
+            {st.log.map((e,i)=>(
+              <div key={e.id} style={{
+                display:"flex", alignItems:"center", gap:8,
+                padding:"4px 8px", borderRadius:5, fontSize:10,
+                background:i===st.log.length-1?`${COLORS[e.pid]}0a`:"transparent",
+                borderLeft:`2px solid ${COLORS[e.pid]||"#475569"}`,
               }}>
-                <span style={{ color: "#334155", fontSize: 10, minWidth: 28, fontFamily: "monospace" }}>
-                  #{String(idx + 1).padStart(2, "0")}
+                <span style={{ color:"#64748b", fontSize:9, minWidth:22, fontFamily:"monospace" }}>
+                  #{String(i+1).padStart(2,"0")}
                 </span>
-                <span style={{ fontSize: 13 }}>{EVT_ICON[evt.type]}</span>
-                <span style={{ color: PROCESS_COLORS[evt.processId], fontWeight: 700, minWidth: 22 }}>
-                  P{evt.processId}
-                </span>
-                <span style={{ color: "#cbd5e1", flex: 1, lineHeight: 1.5 }}>{evt.desc}</span>
-                <span style={{ color: "#334155", fontSize: 9, fontFamily: "monospace", whiteSpace: "nowrap" }}>
-                  clk:{evt.clock}
-                </span>
+                <span style={{ fontSize:11 }}>{EVT_ICON[e.type]}</span>
+                <span style={{ color:COLORS[e.pid], fontWeight:700, minWidth:20, fontSize:9 }}>P{e.pid}</span>
+                <span style={{ color:"#94a3b8", flex:1, lineHeight:1.4 }}>{e.desc}</span>
+                <span style={{ color:"#1e293b", fontSize:8, fontFamily:"monospace" }}>clk:{e.clock}</span>
               </div>
             ))}
-            <div ref={evtEndRef} />
+            <div ref={logEnd}/>
           </div>
         )}
       </div>
 
-      {/* Algorithm steps */}
-      <div style={{
-        display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(155px, 1fr))",
-        gap: 12, maxWidth: 680, margin: "18px auto 0",
-      }}>
+      {/* Algo reminder */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",
+        gap:8, maxWidth:740, margin:"12px auto 0" }}>
         {[
-          { n: "1", t: "REQUEST", c: "#818cf8", d: "P envoie REQUEST(ts, i) à tous. ts = horloge de Lamport incrémentée." },
-          { n: "2", t: "Priorité", c: "#f472b6", d: "Répondre immédiatement sauf si P est en SC ou a une demande plus prioritaire (ts plus petit, ou même ts & id plus petit)." },
-          { n: "3", t: "REPLY → SC", c: "#34d399", d: "Quand toutes les REPLY reçues, P entre en section critique." },
-          { n: "4", t: "Libération", c: "#fb923c", d: "En quittant SC, P envoie les REPLY différées pour débloquer les autres." },
-        ].map(({ n, t, c, d }) => (
-          <div key={n} style={{
-            background: "#ffffff", border: `1px solid ${c}33`,
-            borderLeft: `3px solid ${c}`, borderRadius: 10, padding: "12px 14px",
-          }}>
-            <div style={{ color: c, fontSize: 11, fontWeight: 800, marginBottom: 5 }}>
-              {n}. {t}
-            </div>
-            <div style={{ color: "#475569", fontSize: 10, lineHeight: 1.6 }}>{d}</div>
+          { n:"1", t:"REQUEST",    c:"#60a5fa", d:"Envoie REQUEST(ts,i) à tous les autres sites." },
+          { n:"2", t:"Priorité",   c:"#f472b6", d:"Répond immédiatement sauf si en SC ou demande plus prioritaire." },
+          { n:"3", t:"→ SC",       c:"#34d399", d:"Toutes les REPLY reçues → entre en section critique." },
+          { n:"4", t:"Libération", c:"#fb923c", d:"Quitte SC → envoie les REPLY différées." },
+        ].map(({n,t,c,d})=>(
+          <div key={n} style={{ background:"#ffffff", border:`1px solid #e2e8f0`,
+            borderLeft:`2px solid ${c}`, borderRadius:8, padding:"10px 12px" }}>
+            <div style={{ color:c, fontSize:10, fontWeight:800, marginBottom:4 }}>{n}. {t}</div>
+            <div style={{ color:"#475569", fontSize:9, lineHeight:1.5 }}>{d}</div>
           </div>
         ))}
-      </div>
-
-      {/* Scenario guide */}
-      <div style={{
-        background: "#ffffff", border: "1px solid #e2e8f0",
-        borderRadius: 14, padding: 18, maxWidth: 680, margin: "18px auto 0",
-        boxShadow: "0 12px 24px rgba(15, 23, 42, 0.06)",
-      }}>
-        <div style={{ fontSize: 10, color: "#f59e0b", letterSpacing: 2, textTransform: "uppercase", marginBottom: 10 }}>
-          🎯 Scénario Suggéré (Exemple Prof)
-        </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {[
-            ["1", "#818cf8", "Cliquez P0 → Demander SC"],
-            ["2", "#f472b6", "Cliquez P1 → Demander SC (conflit)"],
-            ["3", "#fb923c", "Cliquez P2 → Demander SC (3 concurrents)"],
-            ["4", "#34d399", "Délivrez les messages REQUEST un par un, observez les REPLY différées"],
-            ["5", "#818cf8", "Simulez une panne sur P2 → observez l'impact (P0 ou P1 peut bloquer)"],
-            ["6", "#f472b6", "Rétablissez P2, quittez SC, observez la libération des différées"],
-          ].map(([n, c, txt]) => (
-            <div key={n} style={{ display: "flex", gap: 10, alignItems: "flex-start", fontSize: 11 }}>
-              <span style={{
-                background: `${c}22`, color: c, borderRadius: 4,
-                padding: "1px 6px", fontWeight: 700, fontSize: 10, minWidth: 18, textAlign: "center",
-              }}>{n}</span>
-              <span style={{ color: "#94a3b8" }}>{txt}</span>
-            </div>
-          ))}
-        </div>
       </div>
     </div>
   );
