@@ -134,25 +134,6 @@ http://localhost:3000
 ---
 
 
-# 📊 Comparaison des algorithmes
-
-| Algorithme | Type | Nombre de messages | Tolérance aux pannes |
-|---|---|---|---|
-| Ricart–Agrawala | Exclusion mutuelle | Élevé | Moyenne |
-| Token Ring | Exclusion mutuelle | Faible | Faible |
-| Bully | Élection | Moyen | Bonne |
-| Ring Election | Élection | Moyen | Bonne |
-| Chandy–Lamport | Snapshot | Moyen | Bonne |
-
----
-
-Le projet propose :
-
-✅ Visualisation des échanges de messages  
-✅ Affichage des processus actifs  
-✅ Simulation graphique des algorithmes  
-✅ Snapshot distribué  
-✅ Journalisation en temps réel
 
 ---
 
